@@ -374,7 +374,8 @@ class TransplantDialog(QDialog):
 
         form = QFormLayout()
         self.target = QComboBox()
-        for key in ("claude", "codex", "opencode", "json"):
+        for key in ("claude", "codex", "opencode", "gemini", "qwen", "goose",
+                    "cline", "roo", "json"):
             self.target.addItem(tr("tp_" + key), key)
         idx = self.target.findData(last_target)
         if idx >= 0:

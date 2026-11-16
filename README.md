@@ -54,8 +54,8 @@ uv run adm --transplant opencode-export.json --to codex --cwd D:\hello --title "
 | 全局搜索 | 后台线程全文检索所有会话(含工具参数),双击结果跳转到具体消息 |
 | 一键恢复 | 新终端窗口在项目目录运行 `claude --resume <id>` / `codex resume <id>` |
 | 归档/复制/删除 | Codex sqlite 归档位;会话复制成新 id;删除前自动备份 |
-| **意识上传** | 把任意会话导出成一个自包含的上传包:`session.jsonl` + `metadata.json` + `install.bat` / `install.ps1` / `install.sh` / `install.py`(同工具恢复)+ `convert.bat` / `convert.ps1` / `convert.sh` / `convert.py` + `transplant/`(换 AI 工具的目标记录)+ `README.md`,Claude 还含 `subagents/`。**同工具**:Windows 双击 `install.bat`,Linux/macOS 运行 `sh install.sh "<工作文件夹>"`,写入对方会话库(新 id、cwd 改写,Codex 自动登记 sqlite),然后 `/resume`。**换工具**:`convert.bat codex "D:\hello"` / `sh convert.sh claude "/home/x"`,目标可选 `claude` / `codex` / `opencode` / `json`,工作文件夹可与原始目录完全不同(例:原 `E:\test` 的 Claude 会话 → `D:\hello` 的 Codex 会话)。Claude 路径无需 Python;Codex 无 Python 时用 `sqlite3`,再没有则打印可执行的 SQL。支持多选批量上传 |
-| **跨工具适配(转生)** | 工具栏「⤴ 适配其它 AI」:把 Claude / Codex 会话转换成 **Claude Code / Codex / OpenCode / 通用 JSON+Markdown**,可指定新的工作目录(例如 `E:\test` → `D:\hello`)。新会话使用全新 id,原会话不改动;工具调用/结果(可选思考、子代理)会转成可读文本,避免目标工具不认识源工具 schema。支持批量。脚本入口:`uv run adm --transplant ...` |
+| **意识上传** | 把任意会话导出成一个自包含的上传包:`session.jsonl` + `metadata.json` + `install.bat` / `install.ps1` / `install.sh` / `install.py`(同工具恢复)+ `convert.bat` / `convert.ps1` / `convert.sh` / `convert.py`(换工具)+ `restore-claude.*` / `restore-codex.*` / `restore-opencode.*` / `restore-gemini.*` / `restore-qwen.*` / `restore-goose.*` / `restore-cline.*` / `restore-roo.*` / `restore-json.*`(换工具并直接继续)+ `transplant/`(换 AI 工具的目标记录)+ `README.md`,Claude 还含 `subagents/`。**同工具**:Windows 双击 `install.bat`,Linux/macOS 运行 `sh install.sh "<工作文件夹>"`,写入对方会话库(新 id、cwd 改写,Codex 自动登记 sqlite),然后 `/resume`。**换工具**:`restore-codex.bat "D:\hello"` / `sh restore-opencode.sh "/home/x"` 会转换并直接打开目标工具的新会话;也可用 `convert.bat codex "D:\hello"` 只转换。目标可选 `claude` / `codex` / `opencode` / `gemini` / `qwen` / `goose` / `cline` / `roo` / `json`,工作文件夹可与原始目录完全不同(例:原 `E:\test` 的 Claude 会话 → `D:\hello` 的 Codex 会话)。Claude 路径无需 Python;Codex 无 Python 时用 `sqlite3`,再没有则打印可执行的 SQL。支持多选批量上传 |
+| **跨工具适配(转生)** | 工具栏「⤴ 适配其它 AI」:把 Claude / Codex 会话转换成 **Claude Code / Codex / OpenCode / Gemini CLI / Qwen Code / Goose / Cline / Roo Code / 通用 JSON+Markdown**,可指定新的工作目录(例如 `E:\test` → `D:\hello`)。新会话使用全新 id,原会话不改动;工具调用/结果(可选思考、子代理)会转成可读文本,避免目标工具不认识源工具 schema。支持批量。脚本入口:`uv run adm --transplant ...` |
 | 统计 | 总览 + 按项目聚合表 |
 | 导出 | 会话导出为 Markdown |
 
@@ -69,23 +69,64 @@ uv run adm --transplant opencode-export.json --to codex --cwd D:\hello --title "
    各目标的转录,直接在包目录运行:
 
    ```bat
+   :: Windows — 转换 + 直接继续
+   restore-codex.bat "D:\hello"
+   restore-opencode.bat "D:\hello"
+   restore-claude.bat "D:\hello"
+   restore-gemini.bat "D:\hello"
+   restore-qwen.bat "D:\hello"
+   restore-goose.bat "D:\hello"
+   restore-cline.bat "D:\hello"
+   restore-roo.bat "D:\hello"
+   restore-json.bat "D:\hello"
+   restore.bat            :: 菜单
+   ```
+
+   ```sh
+   # Linux / macOS
+   sh restore-codex.sh "/home/user/hello"
+   sh restore-opencode.sh "/home/user/hello"
+   sh restore-claude.sh "/home/user/hello"
+   sh restore-gemini.sh "/home/user/hello"
+   sh restore-qwen.sh "/home/user/hello"
+   sh restore-goose.sh "/home/user/hello"
+   sh restore-json.sh "/home/user/hello"
+   ```
+
+   每个 `restore-*` 脚本先调用同目录的 `convert.*` 安装记录,再直接打开目标工具并
+   定位到新会话(`codex resume <id>` / `opencode --session <id>` /
+   `claude --resume <id>` / `gemini --resume <id>` / `qwen --resume <id>` /
+   `goose session --resume --name <id>`)。Cline / Roo Code 只安装到 VS Code
+   扩展的任务目录,在扩展历史列表里打开。加 `--no-launch` 只安装、不打开;加
+   `--force` 覆盖包内固定的目标 id。只想手动转换时仍可用:
+
+   ```bat
    convert.bat codex "D:\hello"
+   convert.bat gemini "D:\hello"
    ```
 
    ```sh
    sh convert.sh claude "/home/user/hello"
+   sh convert.sh goose "/home/user/hello"
    ```
 
-   支持 `claude` / `codex` / `opencode` / `json`;另有 `convert.ps1` / `convert.py`。
-   工作目录可以和原始目录完全不同(例:原 `E:\test` → 新 `D:\hello`),不需要 Python
-   也能完成 Claude 与通用 JSON 两条路径。
+   支持 `claude` / `codex` / `opencode` / `gemini` / `qwen` / `goose` / `cline` /
+   `roo` / `json`;另有 `convert.ps1` / `convert.py` 和 `restore-claude.ps1` 等
+   PowerShell 版本。工作目录可以和原始目录完全不同(例:原 `E:\test` → 新
+   `D:\hello`),不需要 Python 也能完成 Claude 与通用 JSON 两条路径;新增目标
+   (`gemini` / `qwen` / `goose` / `cline` / `roo`)的安装步骤需要 Python 3。
 
-| 目标 | 写入位置 | 继续方式 |
-|---|---|---|
-| Claude Code | `~/.claude/projects/<新目录转义>/<新uuid>.jsonl` | 在目标目录运行 `claude` → `/resume` |
-| Codex | `~/.codex/sessions/年/月/日/rollout-*.jsonl` + `state_5.sqlite` 登记 | 在目标目录运行 `codex` → `/resume` |
-| OpenCode (2.x) | 通过本机 OpenCode 服务的 `/api/experimental/session/import` 导入 | 在目标目录运行 `opencode`,在会话列表选择 |
-| 通用 | `<目录>/<标题>-<id8>/transcript.json` + `transcript.md` + `README.md` | 交给任意工具/代理继续 |
+| 目标 | 写入位置 | 一键恢复脚本 | 继续方式 |
+|---|---|---|---|
+| Claude Code | `~/.claude/projects/<新目录转义>/<新uuid>.jsonl` | `restore-claude.bat/.sh` | `claude --resume <id>` |
+| Codex | `~/.codex/sessions/年/月/日/rollout-*.jsonl` + `state_5.sqlite` 登记 | `restore-codex.bat/.sh` | `codex resume <id>` |
+| OpenCode (2.x) | 通过本机 OpenCode 服务的 `/api/experimental/session/import` 导入 | `restore-opencode.bat/.sh` | `opencode --session <id>` |
+| Gemini CLI | `~/.gemini/tmp/<sha256(目录)>/chats/session-*.json` | `restore-gemini.bat/.sh` | `gemini --resume <id>` |
+| Qwen Code | `~/.qwen/tmp/<sha256(目录)>/chats/session-*.json` | `restore-qwen.bat/.sh` | `qwen --resume <id>` |
+| Goose | `~/.local/share/goose/sessions/<id>.json`(Windows `%APPDATA%\Block\goose\data\sessions`) | `restore-goose.bat/.sh` | `goose session --resume --name <id>` |
+| Cline | VS Code `globalStorage/saoudrizwan.claude-dev/tasks/<id>/` | `restore-cline.bat/.sh` | 打开 VS Code → Cline → 历史 |
+| Roo Code | VS Code `globalStorage/rooveterinaryinc.roo-cline/tasks/<id>/` | `restore-roo.bat/.sh` | 打开 VS Code → Roo Code → 历史 |
+| 通用 / 其它 AI 工具 | `<目录>/<标题>-<id8>/transcript.json` + `transcript.md` + `README.md` | `restore-json.bat/.sh` | 交给任意工具/代理继续 |
 
 - **为什么把工具调用变成文本**:目标工具的 function/tool schema 与源工具不同,原样保留会让恢复后的下一次模型请求报“未知工具/工具结果不匹配”。转成 `[tool: name] … [tool result] …` 文本最稳,也保留决策上下文。
 - OpenCode 目标需要本机 `opencode` 可用(会调用 `opencode api get /api/info` 找服务,读取 `~/.config/opencode/service.json` 的本地密码);导入后立即出现在目标目录的会话列表,无需重启。

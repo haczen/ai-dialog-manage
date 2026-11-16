@@ -7,6 +7,11 @@ then writes it into the session store of a chosen target:
 * ``claude``    ~/.claude/projects/<munged cwd>/<new uuid>.jsonl
 * ``codex``     ~/.codex/sessions/YYYY/MM/DD/rollout-*-<uuid7>.jsonl + state DB
 * ``opencode``  OpenCode V2 (2.x) via its local HTTP import API
+* ``gemini``    ~/.gemini/tmp/<sha256(cwd)>/chats/session-*.json (DeepSeek CLI)
+* ``qwen``      ~/.qwen/tmp/<sha256(cwd)>/chats/session-*.json (Qwen Code)
+* ``goose``     ~/.local/share/goose/sessions/<id>.json
+* ``cline``     VS Code globalStorage/.../saoudrizwan.claude-dev/tasks/<id>/
+* ``roo``       VS Code globalStorage/.../rooveterinaryinc.roo-cline/tasks/<id>/
 * ``json``      portable transcript.json + transcript.md for any other tool
 
 Tool calls/results and (optionally) reasoning are flattened to readable text
@@ -20,12 +25,14 @@ with a fresh id and the requested working directory.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -37,7 +44,8 @@ from pathlib import Path
 from . import claude_store, codex_store, config, util
 from .models import LoadedSession, Message, SessionMeta
 
-TARGETS = ("claude", "codex", "opencode", "json")
+TARGETS = ("claude", "codex", "opencode", "gemini", "qwen", "goose",
+           "cline", "roo", "json")
 
 # Written into pre-rendered transcripts of an upload bundle. Installers
 # replace it with the target working folder at install time. Alphanumeric +
@@ -94,6 +102,14 @@ class TransplantResult:
             return f'cd "{self.cwd}" && codex   ->  /resume'
         if self.target == "opencode":
             return f'cd "{self.cwd}" && opencode   (pick "{self.title}")'
+        if self.target in ("gemini", "qwen"):
+            return f'cd "{self.cwd}" && {self.target} --resume {self.session_id}'
+        if self.target == "goose":
+            return (f'cd "{self.cwd}" && goose session --resume '
+                    f'--name {self.session_id}')
+        if self.target in ("cline", "roo"):
+            label = "Cline" if self.target == "cline" else "Roo Code"
+            return f"open VS Code -> {label} -> History ({self.path})"
         return f"portable transcript: {self.path}"
 
 
@@ -401,6 +417,14 @@ def write_transcript(messages: list[NeutralMessage], title: str, cwd: str,
         return _write_codex(messages, title, cwd, model=model)
     if target == "opencode":
         return _write_opencode(messages, title, cwd)
+    if target in ("gemini", "qwen"):
+        default = "gemini-2.5-pro" if target == "gemini" else "qwen3-coder-plus"
+        return _write_gemini(messages, title, cwd, tool=target,
+                             model=model or default)
+    if target == "goose":
+        return _write_goose(messages, title, cwd)
+    if target in ("cline", "roo"):
+        return _write_cline(messages, title, cwd, tool=target)
     return _write_generic(messages, title, cwd, source, source_name,
                           Path(out_dir) if out_dir else Path(cwd))
 
@@ -813,6 +837,190 @@ def _write_opencode(messages: list[NeutralMessage], title: str,
         path=(info.get("location") or {}).get("directory") or cwd,
         n_messages=len(messages),
         detail=f"projectID={info.get('projectID', '')}")
+
+
+# -- Gemini CLI / Qwen Code ------------------------------------------------
+
+def _project_hash(cwd: str) -> str:
+    """DeepSeek CLI / DeepSeek Code project key: sha256(cwd) hex."""
+    return hashlib.sha256(cwd.encode("utf-8")).hexdigest()
+
+
+def build_gemini_session(messages: list[NeutralMessage], title: str, cwd: str,
+                         *, model: str = "", sid: str | None = None,
+                         project_hash: str | None = None) -> dict:
+    """Session JSON as written by DeepSeek CLI's ChatRecordingService."""
+    sid = sid or str(uuidlib.uuid4())
+    records: list[dict] = []
+    for m in messages:
+        ts = _iso(m.ts)
+        if m.role == "user":
+            records.append({
+                "id": str(uuidlib.uuid4()), "timestamp": ts,
+                "type": "user", "content": m.text,
+            })
+        else:
+            records.append({
+                "id": str(uuidlib.uuid4()), "timestamp": ts,
+                "type": "gemini", "content": m.text,
+                "model": model or "gemini-2.5-pro",
+                "tokens": {"input": 0, "output": 0, "cached": 0,
+                           "thoughts": 0, "tool": 0, "total": 0},
+            })
+    start = _iso(messages[0].ts) if messages else _now_iso()
+    return {
+        "sessionId": sid,
+        "projectHash": project_hash or _project_hash(cwd),
+        "startTime": start,
+        "lastUpdated": _now_iso(),
+        "messages": records,
+    }
+
+
+def _gemini_home(tool: str) -> Path:
+    env = os.environ.get("GEMINI_CLI_HOME" if tool == "gemini"
+                         else "QWEN_HOME")
+    return Path(env).expanduser() if env else Path.home() / f".{tool}"
+
+
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+
+
+def _write_gemini(messages: list[NeutralMessage], title: str, cwd: str,
+                  *, tool: str, model: str) -> TransplantResult:
+    sid = str(uuidlib.uuid4())
+    doc = build_gemini_session(messages, title, cwd, model=model, sid=sid)
+    dest = (_gemini_home(tool) / "tmp" / doc["projectHash"] / "chats"
+            / f"session-{_utc_stamp()}-{sid}.json")
+    _atomic_write(dest, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
+    return TransplantResult(target=tool, session_id=sid, title=title, cwd=cwd,
+                            path=str(dest), n_messages=len(messages))
+
+
+# -- Goose -----------------------------------------------------------------
+
+def build_goose_session(messages: list[NeutralMessage], title: str, cwd: str,
+                        *, sid: str | None = None) -> dict:
+    """Session JSON as stored in ~/.local/share/goose/sessions/<id>.json."""
+    sid = sid or datetime.now().strftime("%Y%m%d_%H%M%S")
+    out: list[dict] = []
+    for m in messages:
+        ts = m.ts if m.ts is not None else datetime.now(timezone.utc)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        out.append({
+            "role": "user" if m.role == "user" else "assistant",
+            "created": int(ts.timestamp()),
+            "content": [{"type": "text", "text": m.text}],
+        })
+    return {
+        "id": sid,
+        "description": title,
+        "working_dir": cwd,
+        "extension_data": {},
+        "conversation": {"messages": out},
+        "message_count": len(out),
+        "created_at": _iso(messages[0].ts) if messages else _now_iso(),
+        "updated_at": _now_iso(),
+    }
+
+
+def _goose_home() -> Path:
+    env = os.environ.get("GOOSE_HOME")
+    if env:
+        return Path(env).expanduser()
+    if os.name == "nt":
+        appdata = Path(os.environ.get("APPDATA")
+                       or Path.home() / "AppData" / "Roaming")
+        cands = [appdata / "Block" / "goose" / "data" / "sessions",
+                 appdata / "goose" / "data" / "sessions",
+                 appdata / "Block" / "goose" / "sessions",
+                 appdata / "goose" / "sessions"]
+        for c in cands:
+            if c.exists() or c.parent.exists():
+                return c
+        return cands[0]
+    base = Path(os.environ.get("XDG_DATA_HOME")
+                or Path.home() / ".local" / "share")
+    return base / "goose" / "sessions"
+
+
+def _write_goose(messages: list[NeutralMessage], title: str, cwd: str
+                 ) -> TransplantResult:
+    doc = build_goose_session(messages, title, cwd)
+    dest = _goose_home() / f"{doc['id']}.json"
+    _atomic_write(dest, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
+    return TransplantResult(target="goose", session_id=doc["id"], title=title,
+                            cwd=cwd, path=str(dest), n_messages=len(messages))
+
+
+# -- Cline / Roo Code (VS Code extensions) ---------------------------------
+
+def build_cline_task(messages: list[NeutralMessage], title: str, cwd: str,
+                     *, sid: str | None = None
+                     ) -> tuple[str, list[dict], list[dict], dict]:
+    """(task_id, api_conversation_history, ui_messages, task_metadata)."""
+    sid = sid or str(int(time.time() * 1000))
+    history: list[dict] = []
+    ui: list[dict] = []
+    first_user = True
+    for idx, m in enumerate(messages):
+        ts = _ms(m.ts)
+        if m.role == "user":
+            history.append({"role": "user", "ts": ts,
+                            "content": [{"type": "text", "text": m.text}]})
+            ui.append({"ts": ts, "type": "say",
+                       "say": "task" if first_user else "user_feedback",
+                       "text": m.text, "conversationHistoryIndex": idx})
+            first_user = False
+        else:
+            history.append({"role": "assistant", "ts": ts,
+                            "content": [{"type": "text", "text": m.text}]})
+            ui.append({"ts": ts, "type": "say", "say": "text",
+                       "text": m.text, "conversationHistoryIndex": idx})
+    meta = {"files_in_context": [], "model_usage": [],
+            "environment_history": []}
+    return sid, history, ui, meta
+
+
+def _vscode_global_storage() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA")
+                    or Path.home() / "AppData" / "Roaming")
+        stable = base / "Code" / "User" / "globalStorage"
+        insiders = base / "Code - Insiders" / "User" / "globalStorage"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+        stable = base / "Code" / "User" / "globalStorage"
+        insiders = base / "Code - Insiders" / "User" / "globalStorage"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME")
+                    or Path.home() / ".config")
+        stable = base / "Code" / "User" / "globalStorage"
+        insiders = base / "Code - Insiders" / "User" / "globalStorage"
+    if not stable.exists() and insiders.exists():
+        return insiders
+    return stable
+
+
+def _cline_ext(tool: str) -> str:
+    return ("saoudrizwan.claude-dev" if tool == "cline"
+            else "rooveterinaryinc.roo-cline")
+
+
+def _write_cline(messages: list[NeutralMessage], title: str, cwd: str,
+                 *, tool: str) -> TransplantResult:
+    sid, history, ui, meta = build_cline_task(messages, title, cwd)
+    dest = _vscode_global_storage() / _cline_ext(tool) / "tasks" / sid
+    _atomic_write(dest / "api_conversation_history.json",
+                  json.dumps(history, ensure_ascii=False, indent=2) + "\n")
+    _atomic_write(dest / "ui_messages.json",
+                  json.dumps(ui, ensure_ascii=False, indent=2) + "\n")
+    _atomic_write(dest / "task_metadata.json",
+                  json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+    return TransplantResult(target=tool, session_id=sid, title=title, cwd=cwd,
+                            path=str(dest), n_messages=len(messages))
 
 
 # -- generic ---------------------------------------------------------------
