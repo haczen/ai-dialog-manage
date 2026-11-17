@@ -1,31 +1,145 @@
-# AI Dialog Manager · AI 会话管理器
+<div align="center">
 
-<p align="center">
-  <img src="adm/assets/app_icon.png" width="140" alt="logo">
-</p>
+<img src="adm/assets/app_icon.png" width="130" alt="AI Dialog Manager">
 
-<p align="center">
-  <b>一个窗口，管住所有 AI CLI 的聊天记录。</b><br>
-  统一浏览 / 搜索 / 编辑 <b>9 种 AI 工具</b>的会话，还能把任意一段对话<br>
-  <b>「转生」</b>到另一种 AI 工具里继续 —— 换工具、换目录，上下文一行不丢。
-</p>
+# AI Dialog Manager
+
+**一个窗口,管住所有 AI 编程工具的聊天记录。**
+
+统一浏览 / 搜索 / 编辑 **9 种 AI 工具**的会话,还能把任意一段对话<br>
+**「转生」**到另一种 AI 工具里继续 —— 换工具、换目录,上下文一行不丢。
+
+[![Release](https://img.shields.io/github/v/release/haczen/ai-dialog-manage?style=flat-square&color=blue)](https://github.com/haczen/ai-dialog-manage/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/haczen/ai-dialog-manage/ci.yml?style=flat-square&label=CI)](https://github.com/haczen/ai-dialog-manage/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue.svg?style=flat-square)]()
+[![Python](https://img.shields.io/badge/python-3.12%2B-3776ab.svg?style=flat-square)](https://www.python.org/)
+
+**中文** | [English](docs/README.en.md) *(coming soon)*
+
+</div>
 
 ---
 
-## 为什么是它?
+## 📦 安装
 
-大部分 AI 编码 CLI 的会话记录散落在各自的隐藏目录里:格式不同、没法互转、
-想改一句话要手抠 JSON。这个工具把它们全部收进同一个界面,并且做到三件事:
+**方式一:下载即用(推荐,Windows 免安装)**
 
-1. **全部能看、能搜、能改** —— 9 种来源统一成同一张列表、同一个聊天视图;
-   双击任意消息即可编辑,删除自动处理工具调用配对,写入前自动备份。
-2. **会话可以「转生」** —— 把一段 Claude 会话转成 Codex / OpenCode / Gemini /
-   Qwen / Goose / Cline / Roo 的会话,指定新的工作目录,`resume` 后直接接着聊。
-3. **导出即用的「意识上传」包** —— 一个自包含文件夹:目标机器**不需要装 Python、
-   不需要装本应用**,双击 `install.bat`(同工具)或 `restore-codex.bat "D:\hello"`
-   (换工具)就能继续对话。
+到 [Releases](https://github.com/haczen/ai-dialog-manage/releases) 下载最新的
+`AI-Dialog-Manager-vX.X.X.exe`,双击运行,无需 Python。
 
-## 支持的 9 个会话来源
+**方式二:源码运行**
+
+```powershell
+git clone https://github.com/haczen/ai-dialog-manage.git
+cd ai-dialog-manage
+uv sync          # 安装依赖(需要 uv,https://docs.astral.sh/uv/)
+uv run adm       # 启动
+```
+
+**自行打包**
+
+```powershell
+uv run pyinstaller --noconfirm AI-Dialog-Manager.spec
+# 产物在 dist\AI-Dialog-Manager.exe
+```
+
+## 🚀 快速上手教程
+
+### 第 1 步 · 启动与扫描
+
+双击 exe(或 `uv run adm`)。启动后自动扫描本机全部 9 种来源的会话,
+按最近更新排序。状态栏显示 `129 个会话 · Claude 109 · Codex 13 · …`。
+
+> 第一次扫描约 1 秒;之后启动有缓存,秒开。
+> 只要你机器上装过对应工具、产生过对话,就会自动出现在列表里。
+
+### 第 2 步 · 找到想看的会话
+
+| 操作 | 方法 |
+|---|---|
+| 按关键词找 | 左上搜索框:标题 / 项目 / id 模糊匹配(`Ctrl+F`) |
+| 只看某个工具 | 「来源」下拉:9 个来源独立筛选 |
+| 只看某项目 | 「项目」下拉(自动收集全部项目) |
+| 排序 | 「排序」下拉 + `↓↑` 切换方向;表头点击也可以 |
+| 项目全景 | 「📁 按项目分组」切换树视图:项目节点带会话数/消息数/总大小 |
+| 快捷收藏 | 点 ☆,配合「★ 收藏」只看收藏 |
+
+### 第 3 步 · 查看对话
+
+**双击任意会话**,右侧打开聊天视图:
+
+- 用户 / 助手气泡,thinking 与工具调用/结果默认折叠,点开看细节
+- 会话内还有一排工具:只看用户/助手、隐藏工具噪音、**会话内搜索**、
+  **倒序阅读**(最新消息在前)
+- 大会话自动分页,「加载更多」翻看历史
+- 每条消息显示行号、时间戳、模型名
+
+### 第 4 步 · 编辑对话
+
+**双击任意消息**打开编辑器:
+
+- 「文本」标签:直接改文字(工具参数以 JSON 编辑)
+- 「Raw JSON」标签:直接改原始记录,高手用法
+- **删除消息**:自动连带其 tool_use / tool_result 配对;
+  Claude 会话还会自动修复 parentUuid 链,不会改坏
+- 「+ 追加消息」:往会话末尾加一条用户消息,resume 后 CLI 立即可见
+- 删除后自动跳回原位置,不用重新翻页
+
+> 每次写入前自动备份到 `%APPDATA%\ai-dialog-manager\backups\`,
+> 保留最近 8 份;CLI 在你编辑期间追加的内容会被自动保留合并。
+
+### 第 5 步 · 一键恢复继续聊
+
+选中会话 →「▶ 恢复会话」:自动在项目目录打开新终端,执行
+`claude --resume <id>` / `codex resume <id>` / `opencode --session <id>` 等。
+
+### 第 6 步 · 转生到另一个 AI 工具
+
+这是本工具的特色功能。选中会话 →「⤴ 适配其它 AI」:
+
+1. 选目标工具(Claude / Codex / OpenCode / Gemini / Qwen / Goose / Cline / Roo / JSON)
+2. 选**新的工作目录**(可以和原目录完全不同,如 `E:\test` → `D:\hello`)
+3. 可选新标题、是否带上工具记录/思考/子代理
+4. 确认 → 新工具的会话库里出现一个**全新 id** 的会话,原会话不动
+
+工具调用会转成可读文本,避免目标工具不认识源工具的 schema 而报错。
+也支持命令行:
+
+```powershell
+uv run adm --transplant 4f2a1c --to codex --cwd D:\hello
+```
+
+### 第 7 步 · 意识上传(把会话打包带走)
+
+选中会话 →「⤴ 意识上传」导出一个自包含文件夹,
+拿到**没装 Python、没装本工具**的机器上:
+
+```bat
+install.bat "D:\新目录"        :: 同工具恢复(新 id、cwd 改写)
+restore-codex.bat "D:\hello"   :: 换工具:转换 + 直接打开继续
+restore-gemini.bat "D:\hello"  :: 或 Gemini / Qwen / Goose / Cline / Roo / JSON
+```
+
+### 第 8 步 · 全局搜索与批处理
+
+- `Ctrl+Shift+F` 全局搜索:**所有来源的全文**(含工具参数和输出),
+  双击结果直接跳到那条消息
+- `Ctrl`/`Shift` 多选会话 →「⋯ 批处理」:批量收藏/归档/导出 Markdown/删除/上传/转生
+
+### 快捷键速查
+
+| 按键 | 作用 |
+|---|---|
+| `Ctrl+F` | 会话列表过滤框 |
+| `Ctrl+Shift+F` | 全局搜索 |
+| `F5` | 重新扫描 |
+| `Delete` | 删除选中会话(先备份) |
+| `Enter` | 打开选中会话 |
+| 双击列表行 | 打开会话 |
+| 双击消息 | 编辑该消息 |
+
+## 🗂 支持的 9 个会话来源
 
 | 来源 | 会话存储位置 | 编辑 | 一键恢复 |
 |---|---|---|---|
@@ -37,131 +151,43 @@
 | **Goose** | `%APPDATA%\Block\goose\data\sessions\<id>.json` | ✅ | `goose session --resume --name <id>` |
 | **Cline**(VS Code) | `globalStorage/saoudrizwan.claude-dev/tasks/<id>/` | ✅ | VS Code → Cline → 历史 |
 | **Roo Code**(VS Code) | `globalStorage/rooveterinaryinc.roo-cline/tasks/<id>/` | ✅ | VS Code → Roo → 历史 |
-| **Kiro**(AWS AI IDE) | `%APPDATA%\Kiro\User\workspaceStorage\*\` 会话 JSON(探测式解析) | ✅ | Kiro 内 History 继续 |
+| **Kiro**(AWS AI IDE) | `%APPDATA%\Kiro\User\workspaceStorage\*` 会话 JSON(探测式) | ✅ | Kiro 内 History 继续 |
 
-字段级细节:每个来源的标题、项目、消息数、大小、tokens、运行状态、归档状态
-都统一提取;Gemini/Qwen 的会话目录是单向哈希,扫描时用其它来源的 cwd 反查还原项目名。
+每个来源的标题、项目、消息数、大小、tokens、运行状态、归档状态统一提取;
+Gemini / Qwen 的会话目录是单向哈希,扫描时用其它来源的 cwd 反查还原项目名。
 
-## 功能一览
-
-### 浏览与查找
-- **统一列表**:收藏 / 来源(带专属颜色徽章)/ 标题 / 项目 / 消息数 / 大小 /
-  tokens / 时间 / 状态,九种排序,表头点击排序
-- **筛选**:关键词、来源下拉(8 源)、项目下拉、只看收藏、隐藏归档、隐藏子代理
-- **按项目分组**:切换树视图,项目节点带会话数/消息数/总大小/最近更新
-- **全局搜索**:后台线程全文检索**全部来源**(含工具调用的参数和输出),
-  命中即跳转到具体消息;OpenCode 走 sqlite 全文查询
-- **聊天视图**:用户/助手气泡、思考块、工具调用/结果折叠、时间戳、模型名;
-  会话内再过滤(只看人类/无工具噪音)+ 会话内搜索;大文件分页、
-  **倒序阅读**、批量勾选消息
-
-### 编辑(全部 9 种来源)
-- 双击消息 → **文本编辑** 或 **Raw JSON** 双标签
-- 删除消息自动连带其 `tool_use` / `tool_result` 配对(Claude / Codex / Cline / Roo)
-- Claude 删除后**自动修复 parentUuid 链**,CLI 不会因断链而打不开会话
-  (独立入口 `--repair` 可批量修历史文件)
-- 追加用户消息,`resume` 后 CLI 立即可见
-- OpenCode 直接写 sqlite:**备份用 sqlite backup API**(含 WAL)、
-  短事务 `BEGIN IMMEDIATE`、**同步推进 seq 分配器**避免和运行中的服务撞唯一索引
-- 每次写入前三重保护,见下方「数据安全」
-
-### 转生(跨工具适配)
-选中会话 →「⤴ 适配其它 AI」,或命令行:
-
-```powershell
-uv run adm --transplant <会话id前缀> --to codex --cwd D:\hello
-```
-
-- 目标 9 选 1:**Claude Code / Codex / OpenCode / Gemini / Qwen / Goose /
-  Cline / Roo / 通用 JSON+Markdown**
-- 新会话用**全新 id、全新工作目录**,原会话一个字节不动
-- 工具调用/结果(可选思考、子代理)转成可读文本——目标工具不认源工具的
-  schema,原样保留会让下一次模型请求报错
-- 支持批量;OpenCode 通过其本地 HTTP 服务导入,立即出现在会话列表
-
-### 意识上传(可移植包)
-导出为一个自包含文件夹,**目标机器零依赖**(Claude/JSON 路径连 Python 都不要):
-
-```
-<标题>-<id8>/
-├── session.jsonl     原始转录
-├── metadata.json     身份/来源/时间/统计
-├── install.bat/.sh/.ps1/.py     同工具安装(新 id、cwd 改写、Codex 自动登记 sqlite)
-├── restore-claude.* / restore-codex.* / restore-opencode.* / restore-gemini.*
-│   ……restore-json.*            换工具:转换 + 直接打开目标工具继续
-├── convert.*                    只转换不打开
-└── transplant/                  预渲染的各目标转录
-```
-
-用法:
-
-```bat
-:: 同工具继续
-install.bat "D:\新目录"
-:: 换工具继续(示例:转成 Codex 并打开)
-restore-codex.bat "D:\hello"
-```
-
-### 其它
-- **批处理**:多选会话 → 批量收藏 / 归档 / 导出 Markdown / 删除 / 上传 / 转生
-- **统计**:总览 + 按项目聚合
-- **中英双语**:工具栏 🌐 即时切换全界面文案,自动记住
-- **收藏 / 备注 / 改名**:本地 sidecar 存储;OpenCode 直接改库内标题
-- **导出**:任意会话导出 Markdown
-
-## 数据安全
+## 🛡 数据安全
 
 - **只读优先**:列表扫描不写任何原始文件
 - **写前自动备份**:`%APPDATA%\ai-dialog-manager\backups\<来源>\<会话>\`,
   保留最近 8 份;OpenCode 用 sqlite backup API 保证 WAL 一致性
-- **外部修改检测**:保存时校验加载时的快照——CLI 在你打开期间追加的内容
-  自动保留合并;已被外部改动的旧内容**拒绝覆盖**并提示
+- **外部修改检测**:保存时校验加载快照——CLI 期间追加的内容自动保留合并,
+  已被外部改动的旧内容**拒绝覆盖**并提示
 - **原子写入**:临时文件 + `os.replace`,断电不留半个文件
-- Codex 编辑后自动清理 `thread_history.sqlite` 投影缓存,强制从 rollout 重新投影
+- Codex 编辑后自动清理投影缓存,强制从 rollout 重新投影
 
-## 性能
+## ⚡ 性能
 
-- **启动扫描走持久化缓存**(`路径 + mtime + size` 指纹):
-  311MB / 129 个会话的扫描,**首次 1.0s,之后 0.03s**(约 37 倍)
-- 文件变化才重扫;删除的文件自动出缓存
-- **懒加载**:左侧列表只扫元数据;点击会话才在后台线程解析正文,UI 永不阻塞
-- 连点会话立即切换,旧加载任务自动作废,不会显示错内容
+| 指标 | 数值 |
+|---|---|
+| 首次全量扫描(311MB / 129 会话) | ~1.0s |
+| 热启动扫描(缓存命中) | **0.03s** |
+| 列表加载策略 | 只扫元数据,点击才解析正文(后台线程) |
+| 连续点击切换会话 | 立即切换,旧加载自动作废 |
 
-## 快速开始
-
-**方式一:下载即用**(Windows 免安装)
-
-```
-dist\AI-Dialog-Manager.exe    双击运行,无需 Python
-```
-
-**方式二:源码运行**
-
-```powershell
-uv sync
-uv run adm                 # 启动 GUI
-```
-
-**自行打包**
-
-```powershell
-uv run pyinstaller --noconfirm AI-Dialog-Manager.spec
-```
-
-## 命令行
+## ⌨️ 命令行
 
 ```powershell
 uv run adm --selftest      # 无界面自检:全源扫描/解析/编辑回环/缓存校验
 uv run adm --repair        # 修复 Claude 会话断链(parentUuid/leafUuid)
-uv run adm --smoke         # GUI 冒烟测试
 uv run adm --transplant <id|path> --to claude|codex|opencode|gemini|qwen|goose|cline|roo|json
-                          [--cwd DIR] [--title T] [--out DIR] [--no-tools] [--reasoning]
+                           [--cwd DIR] [--title T] [--out DIR] [--no-tools] [--reasoning]
 ```
 
-`--transplant` 的源可以是任意已扫描来源的会话 id(前缀也可),或者是
-Claude/Codex 转录文件、OpenCode 导出的 JSON。
+`--transplant` 的源可以是任意已扫描来源的会话 id(前缀也可),
+或 Claude/Codex 转录文件、OpenCode 导出的 JSON。
 
-## 技术架构
+## 🏗 架构 & 二次开发
 
 ```
 adm/
@@ -178,26 +204,47 @@ adm/
 ├── jsonlio.py         jsonl 行级编辑器(备份+外部修改检测+原子写)
 ├── record_io.py       JSON 文档记录级编辑器(同保真)
 ├── meta_cache.py      持久化扫描缓存
-├── scanner.py         后台扫描线程
-├── searcher.py        全局搜索(行搜/记录搜/sqlite 三路分派)
-├── launcher.py        新终端恢复会话
+├── scanner.py / searcher.py / launcher.py
 ├── transfer.py        意识上传:可恢复包 + 无依赖安装器
 ├── transplant.py      跨工具转换:中立会话 + 9 个目标写入器
 ├── i18n.py            中英文案
 └── ui/                主题 / 表格 / 聊天视图 / 对话框 / 主窗口
 ```
 
-**新增一种来源 = 一个 store 模块 + 在 `sources.py` 注册一行**;
-UI 的分派、搜索、转生、上传全部自动生效。
+**新增一种来源 = 写一个 store 模块 + 在 `sources.py` 注册一行**;
+列表、搜索、编辑、转生、上传、统计全部自动生效。
 
-## 注意事项
+开发自查:
 
-- 编辑 **Codex 会话前先关掉正在跑的 codex 进程**;编辑 OpenCode 时若服务在跑,
-  会提示确认(避免内存态覆盖)。
-- 归档标记只有 Codex 有;其它来源用 ★ 收藏代替。
-- Cline / Roo 的历史在 VS Code 扩展内打开,没有命令行 resume。
-- 图标源文件:`adm/assets/app_icon.png`(1024px 透明 PNG),
-  改风格后跑 `python tools/make_icon.py` 重新生成。
+```powershell
+uv run adm --selftest           # 全源夹具 + 编辑回环 + 缓存断言
+$env:ADM_AUTOTEST='1'; uv run adm --smoke   # GUI 自动化冒烟
+```
+
+## 🤝 贡献
+
+欢迎 issue / PR:
+
+- 新来源适配(最需要:各工具新版本的存储格式变化)
+- 各来源在真实环境下的验证报告(路径/字段与实现是否一致)
+- UI/UX 改进、英文翻译完善
+
+## 📄 许可与免责
+
+[MIT License](LICENSE)。
+
+- 本项目按「现状」提供,不附带任何担保;作者不对使用造成的损失负责,
+  建议批量操作前自行备份
+- 使用者应遵守所在地法律及各 AI 工具的服务条款;违规使用责任自负
+- 独立个人项目,与 Anthropic / OpenAI / Google / Alibaba / Block / AWS 等
+  任何公司无关联;各工具名称与商标归其所有者
+- 不收集、不上传任何数据,所有操作本机完成
+
+## 🌟 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=haczen/ai-dialog-manage&type=Date)](https://star-history.com/#haczen/ai-dialog-manage&Date)
+
+---
 
 ## 社区 / 友链
 
@@ -206,24 +253,3 @@ UI 的分派、搜索、转生、上传全部自动生效。
 > [LINUX DO](https://linux.do/) - 新的理想型社区
 
 欢迎在 LINUX DO 讨论、反馈与交流本工具的使用心得。
-
-## 免责声明 / Disclaimer
-
-- **本项目按「现状」提供**,采用 [MIT License](LICENSE) 开源,
-  不附带任何明示或默示的担保,作者不对使用本工具造成的任何数据丢失、
-  业务中断或其它损失承担责任。工具虽已内置自动备份与原子写入,
-  仍建议在批量操作前自行做好数据备份。
-- **用户责任**:本工具仅在本地读写用户自己的会话记录文件。使用者应确保
-  其使用方式遵守所在地的法律法规,以及相应 AI 工具(Anthropic / OpenAI /
-  OpenCode / Google / Alibaba / Block 等)的服务条款。任何违反法律、法规
-  或第三方条款的使用行为,责任由使用者自行承担,与本项目及其作者无关。
-- **无关联声明**:本项目是独立的个人开源项目,与 Anthropic、OpenAI、
-  OpenCode、Google、Alibaba、Block、Cline、Roo Code 或文中提及的任何
-  工具/公司没有任何隶属、合作或背书关系;各工具名称与商标归其各自
-  所有者所有。
-- 本项目不收集、不上传任何用户数据,所有操作均在本机完成。
-
----
-
-**This project is not affiliated with Anthropic, OpenAI, OpenCode, Google,
-Alibaba, Block, or any of the tools it manages.**

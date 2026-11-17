@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  selftest:
+    name: Selftest (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Run headless selftest
+        run: uv run adm --selftest
+
+      - name: Package smoke build
+        run: uv run pyinstaller --noconfirm AI-Dialog-Manager.spec
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Dialog-Manager-dev
+          path: dist/AI-Dialog-Manager.exe
+          retention-days: 7
