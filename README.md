@@ -197,6 +197,14 @@ UI 的分派、搜索、转生、上传全部自动生效。
 - 图标源文件:`adm/assets/app_icon.png`(1024px 透明 PNG),
   改风格后跑 `python tools/make_icon.py` 重新生成。
 
+## 社区 / 友链
+
+本开源项目已链接认可 [LINUX DO 社区](https://linux.do/) 🐧
+
+> [LINUX DO](https://linux.do/) - 新的理想型社区
+
+欢迎在 LINUX DO 讨论、反馈与交流本工具的使用心得。
+
 ## 免责声明 / Disclaimer
 
 - **本项目按「现状」提供**,采用 [MIT License](LICENSE) 开源,
