@@ -197,6 +197,22 @@ UI 的分派、搜索、转生、上传全部自动生效。
 - 图标源文件:`adm/assets/app_icon.png`(1024px 透明 PNG),
   改风格后跑 `python tools/make_icon.py` 重新生成。
 
+## 免责声明 / Disclaimer
+
+- **本项目按「现状」提供**,采用 [MIT License](LICENSE) 开源,
+  不附带任何明示或默示的担保,作者不对使用本工具造成的任何数据丢失、
+  业务中断或其它损失承担责任。工具虽已内置自动备份与原子写入,
+  仍建议在批量操作前自行做好数据备份。
+- **用户责任**:本工具仅在本地读写用户自己的会话记录文件。使用者应确保
+  其使用方式遵守所在地的法律法规,以及相应 AI 工具(Anthropic / OpenAI /
+  OpenCode / Google / Alibaba / Block 等)的服务条款。任何违反法律、法规
+  或第三方条款的使用行为,责任由使用者自行承担,与本项目及其作者无关。
+- **无关联声明**:本项目是独立的个人开源项目,与 Anthropic、OpenAI、
+  OpenCode、Google、Alibaba、Block、Cline、Roo Code 或文中提及的任何
+  工具/公司没有任何隶属、合作或背书关系;各工具名称与商标归其各自
+  所有者所有。
+- 本项目不收集、不上传任何用户数据,所有操作均在本机完成。
+
 ---
 
 **This project is not affiliated with Anthropic, OpenAI, OpenCode, Google,
