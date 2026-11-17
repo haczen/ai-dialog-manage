@@ -14,14 +14,14 @@ import json
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from . import cline_store, gemini_store, goose_store, opencode_store
+from . import cline_store, gemini_store, goose_store, kiro_store, opencode_store
 from .models import SessionMeta
 
 MAX_HITS = 3000
 
 _RECORD_STORES = {"gemini": gemini_store, "qwen": gemini_store,
                   "goose": goose_store, "cline": cline_store,
-                  "roo": cline_store}
+                  "roo": cline_store, "kiro": kiro_store}
 
 
 class SearchThread(QThread):

@@ -17,6 +17,7 @@ from . import (
     codex_store,
     gemini_store,
     goose_store,
+    kiro_store,
     opencode_store,
 )
 from .models import LoadedSession, SessionMeta
@@ -77,6 +78,10 @@ SOURCES: dict[str, SourceSpec] = {
         scan=lambda p, c: cline_store.scan(p, c, tool="roo"),
         load=cline_store.load, editable=True,
         resume_cmd=None),
+    "kiro": SourceSpec(
+        key="kiro", scan=kiro_store.scan,
+        load=kiro_store.load, editable=True,
+        resume_cmd=None),
 }
 
 # sources whose sessions live under a one-way hash dir; they scan last so
@@ -87,7 +92,7 @@ _STORES = {
     "claude": claude_store, "codex": codex_store,
     "opencode": opencode_store, "gemini": gemini_store,
     "qwen": gemini_store, "goose": goose_store,
-    "cline": cline_store, "roo": cline_store,
+    "cline": cline_store, "roo": cline_store, "kiro": kiro_store,
 }
 
 

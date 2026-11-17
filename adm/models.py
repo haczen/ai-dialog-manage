@@ -9,12 +9,12 @@ from typing import Any
 SOURCE_BADGES = {
     "claude": "Claude", "codex": "Codex", "opencode": "OpenCode",
     "gemini": "Gemini", "qwen": "Qwen", "goose": "Goose",
-    "cline": "Cline", "roo": "Roo",
+    "cline": "Cline", "roo": "Roo", "kiro": "Kiro",
 }
 SOURCE_COLORS = {
     "claude": "#5b8cff", "codex": "#4ec9a8", "opencode": "#e0a458",
     "gemini": "#9b8cff", "qwen": "#5fc6d6", "goose": "#d98cb8",
-    "cline": "#e07a5f", "roo": "#c9a227",
+    "cline": "#e07a5f", "roo": "#c9a227", "kiro": "#f7768e",
 }
 
 

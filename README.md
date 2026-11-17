@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>一个窗口，管住所有 AI CLI 的聊天记录。</b><br>
-  统一浏览 / 搜索 / 编辑 <b>8 种 AI 工具</b>的会话，还能把任意一段对话<br>
+  统一浏览 / 搜索 / 编辑 <b>9 种 AI 工具</b>的会话，还能把任意一段对话<br>
   <b>「转生」</b>到另一种 AI 工具里继续 —— 换工具、换目录，上下文一行不丢。
 </p>
 
@@ -17,7 +17,7 @@
 大部分 AI 编码 CLI 的会话记录散落在各自的隐藏目录里:格式不同、没法互转、
 想改一句话要手抠 JSON。这个工具把它们全部收进同一个界面,并且做到三件事:
 
-1. **全部能看、能搜、能改** —— 8 种来源统一成同一张列表、同一个聊天视图;
+1. **全部能看、能搜、能改** —— 9 种来源统一成同一张列表、同一个聊天视图;
    双击任意消息即可编辑,删除自动处理工具调用配对,写入前自动备份。
 2. **会话可以「转生」** —— 把一段 Claude 会话转成 Codex / OpenCode / Gemini /
    Qwen / Goose / Cline / Roo 的会话,指定新的工作目录,`resume` 后直接接着聊。
@@ -25,7 +25,7 @@
    不需要装本应用**,双击 `install.bat`(同工具)或 `restore-codex.bat "D:\hello"`
    (换工具)就能继续对话。
 
-## 支持的 8 个会话来源
+## 支持的 9 个会话来源
 
 | 来源 | 会话存储位置 | 编辑 | 一键恢复 |
 |---|---|---|---|
@@ -37,6 +37,7 @@
 | **Goose** | `%APPDATA%\Block\goose\data\sessions\<id>.json` | ✅ | `goose session --resume --name <id>` |
 | **Cline**(VS Code) | `globalStorage/saoudrizwan.claude-dev/tasks/<id>/` | ✅ | VS Code → Cline → 历史 |
 | **Roo Code**(VS Code) | `globalStorage/rooveterinaryinc.roo-cline/tasks/<id>/` | ✅ | VS Code → Roo → 历史 |
+| **Kiro**(AWS AI IDE) | `%APPDATA%\Kiro\User\workspaceStorage\*\` 会话 JSON(探测式解析) | ✅ | Kiro 内 History 继续 |
 
 字段级细节:每个来源的标题、项目、消息数、大小、tokens、运行状态、归档状态
 都统一提取;Gemini/Qwen 的会话目录是单向哈希,扫描时用其它来源的 cwd 反查还原项目名。
@@ -54,7 +55,7 @@
   会话内再过滤(只看人类/无工具噪音)+ 会话内搜索;大文件分页、
   **倒序阅读**、批量勾选消息
 
-### 编辑(全部 8 种来源)
+### 编辑(全部 9 种来源)
 - 双击消息 → **文本编辑** 或 **Raw JSON** 双标签
 - 删除消息自动连带其 `tool_use` / `tool_result` 配对(Claude / Codex / Cline / Roo)
 - Claude 删除后**自动修复 parentUuid 链**,CLI 不会因断链而打不开会话
@@ -173,6 +174,7 @@ adm/
 ├── gemini_store.py    Gemini CLI / Qwen Code(同构参数化)
 ├── goose_store.py     Goose
 ├── cline_store.py     Cline / Roo Code(同构参数化)
+├── kiro_store.py      Kiro IDE(探测式解析 workspaceStorage)
 ├── jsonlio.py         jsonl 行级编辑器(备份+外部修改检测+原子写)
 ├── record_io.py       JSON 文档记录级编辑器(同保真)
 ├── meta_cache.py      持久化扫描缓存

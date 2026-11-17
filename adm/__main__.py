@@ -744,6 +744,47 @@ def selftest() -> int:
             SessionMeta(source="cline", id="t", path="p", project="p")) is None
         print("   sources registry: load/resume dispatch: OK")
 
+        # ---------- kiro (VS Code fork workspaceStorage probing) ----------
+        from adm import kiro_store as kiro_st
+        kuser = tmpdir / "kiro-user"
+        wsdir = kuser / "workspaceStorage" / "ab12cd34"
+        wsdir.mkdir(parents=True)
+        (wsdir / "workspace.json").write_text(
+            json.dumps({"folder": "file:///d%3A/fixture/kiro"}), encoding="utf-8")
+        (wsdir / "chat").mkdir()
+        (wsdir / "chat" / "history.json").write_text(json.dumps({
+            "sessionId": "kiro-s1",
+            "messages": [
+                {"role": "user", "content": "hello kiro",
+                 "timestamp": 1758000000000},
+                {"role": "assistant",
+                 "content": [{"type": "text", "text": "kiro reply"}],
+                 "timestamp": 1758000001000},
+            ]}, indent=2), encoding="utf-8")
+        orig_kiro_dir = kiro_st._kiro_user_dir
+        kiro_st._kiro_user_dir = lambda: kuser
+        try:
+            gm = kiro_st.scan(lambda s: None)
+            assert len(gm) == 1, f"kiro scan: {len(gm)}"
+            assert gm[0].cwd == "d:/fixture/kiro" or \
+                gm[0].cwd.lower().endswith("d:/fixture/kiro"), \
+                f"kiro cwd: {gm[0].cwd!r}"
+            gs = kiro_st.load(gm[0])
+            assert len(gs.messages) == 2
+            assert gs.messages[1].parts[0].text == "kiro reply"
+            ed = kiro_st.make_editor(gs)
+            kiro_st.apply_text_edits(ed, gs.messages[0], {0: "EDITED KIRO"})
+            kiro_st.append_user_message(ed, gm[0], "kiro appended")
+            ed.save()
+            gs2 = kiro_st.load(gm[0])
+            assert gs2.messages[0].parts[0].text == "EDITED KIRO"
+            assert gs2.messages[-1].parts[0].text == "kiro appended"
+            assert sources_mod.editable("kiro")
+            assert sources_mod.resume_command(gm[0]) is None
+            print("   kiro: probe scan(cwd from workspace.json) + load + edit + append: OK")
+        finally:
+            kiro_st._kiro_user_dir = orig_kiro_dir
+
         # ---------- meta cache ----------
         from adm import meta_cache
         gm_a = goose_st.scan(lambda s: None)
