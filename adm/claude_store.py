@@ -13,11 +13,14 @@ import uuid as uuidlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, util
+from . import config, meta_cache, util
 from .jsonlio import SessionEditor
 from .models import LoadedSession, Message, Part, SessionMeta
 
 _DISPLAY_TYPES = {"user", "assistant"}
+
+# byte markers of display-relevant lines (see _scan_file's fast path)
+_KEEP_MARKERS = (b'"type":"user"', b'"type":"assistant"', b'"type":"ai-title"')
 
 
 # ---------------------------------------------------------------- scan
@@ -53,7 +56,8 @@ def scan_claude(progress=None) -> list[SessionMeta]:
         # top-level <sessionId>.jsonl + nested subagent transcripts
         # (projects/<proj>/<sessionId>/subagents/*.jsonl)
         for f in proj.rglob("*.jsonl"):
-            m = _scan_file(f, proj.name)
+            # meta cache: unchanged files skip the 311MB re-read entirely
+            m = meta_cache.cached_meta(str(f), lambda f=f: _scan_file(f, proj.name))
             if not m:
                 continue
             if "subagents" in f.parts:
@@ -76,12 +80,18 @@ def _scan_file(path: Path, project: str) -> SessionMeta | None:
         model = ""
         n_user = n_asst = 0
         first_ts = last_ts = None
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                if not line or line[0] != "{":
+        # fast path: the store is hundreds of MB and most lines are snapshot/
+        # attachment noise. Read bytes and substring-gate each line so the
+        # UTF-8 decode + json.loads only run on display-relevant records.
+        with open(path, "rb") as f:
+            for bline in f:
+                if _KEEP_MARKERS[0] not in bline and _KEEP_MARKERS[1] not in bline \
+                        and _KEEP_MARKERS[2] not in bline:
+                    continue
+                if not bline.startswith(b"{"):
                     continue
                 try:
-                    o = json.loads(line)
+                    o = json.loads(bline.decode("utf-8", "replace"))
                 except ValueError:
                     continue
                 t = o.get("type")

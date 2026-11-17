@@ -5,6 +5,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+# Registry of display metadata per source key (labels double as filter values).
+SOURCE_BADGES = {
+    "claude": "Claude", "codex": "Codex", "opencode": "OpenCode",
+    "gemini": "Gemini", "qwen": "Qwen", "goose": "Goose",
+    "cline": "Cline", "roo": "Roo",
+}
+SOURCE_COLORS = {
+    "claude": "#5b8cff", "codex": "#4ec9a8", "opencode": "#e0a458",
+    "gemini": "#9b8cff", "qwen": "#5fc6d6", "goose": "#d98cb8",
+    "cline": "#e07a5f", "roo": "#c9a227",
+}
+
 
 @dataclass
 class Part:
@@ -28,6 +40,7 @@ class Message:
     sidechain: bool = False     # claude subagent traffic
     codex_payload: dict | None = None  # original payload for codex records
     claude_record: dict | None = None  # original record for claude records
+    raw_record: dict | None = None     # original record for other sources
 
     @property
     def is_tool_related(self) -> bool:
@@ -58,7 +71,7 @@ class Message:
 
 @dataclass
 class SessionMeta:
-    source: str            # 'claude' | 'codex'
+    source: str            # 'claude' | 'codex' | 'opencode' | 'gemini' | ...
     id: str
     path: str
     project: str           # display project name
@@ -75,6 +88,7 @@ class SessionMeta:
     archived: bool = False
     running: bool = False
     subagent: bool = False     # claude projects/<proj>/subagents/*.jsonl
+    readonly: bool = False     # source store does not support edits (opencode)
     preview: str = ""
     # local (sidecar) metadata
     starred: bool = False
@@ -88,7 +102,7 @@ class SessionMeta:
 
     @property
     def source_badge(self) -> str:
-        return "Claude" if self.source == "claude" else "Codex"
+        return SOURCE_BADGES.get(self.source, self.source.capitalize())
 
 
 @dataclass

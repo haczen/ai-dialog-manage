@@ -96,6 +96,20 @@ class MessageEditDialog(QDialog):
                                 json.dumps(out, ensure_ascii=False))
                 tlay.addWidget(te)
                 self.text_edits.append(("out", te))
+        elif msg.raw_record is not None:
+            # gemini/qwen/goose/cline/roo — one editor per part, edits map
+            # back by part index (see each store's apply_text_edits)
+            for i, part in enumerate(msg.parts):
+                label = part.name if part.name else part.kind
+                tlay.addWidget(QLabel(tr("part_n", i=i, t=label)))
+                if part.kind == "text":
+                    te = QPlainTextEdit(part.text)
+                else:
+                    te = _mono_te()
+                    te.setPlainText(part.text)
+                te.setMinimumHeight(120)
+                tlay.addWidget(te)
+                self.text_edits.append(("text", te))
         else:
             rec = msg.claude_record or {}
             content = (rec.get("message") or {}).get("content")
@@ -142,7 +156,9 @@ class MessageEditDialog(QDialog):
         raw_page = QWidget()
         rlay = QVBoxLayout(raw_page)
         self.raw_edit = _mono_te()
-        src = msg.codex_payload if msg.codex_payload is not None else msg.claude_record
+        src = (msg.codex_payload if msg.codex_payload is not None
+               else msg.raw_record if msg.raw_record is not None
+               else msg.claude_record)
         if msg.codex_payload is not None:
             src = json.loads(json.dumps(src))
         self.raw_edit.setPlainText(json.dumps(src, ensure_ascii=False, indent=2))
@@ -178,6 +194,8 @@ class MessageEditDialog(QDialog):
         out: dict[int, str] = {}
         # build mapping mirroring the dialog construction order
         if self.msg.codex_payload is not None:
+            return {i: te.toPlainText() for i, (_, te) in enumerate(self.text_edits)}
+        if self.msg.raw_record is not None:
             return {i: te.toPlainText() for i, (_, te) in enumerate(self.text_edits)}
         rec = self.msg.claude_record or {}
         content = (rec.get("message") or {}).get("content")
@@ -309,8 +327,10 @@ class StatsDialog(QDialog):
         self.resize(760, 560)
         lay = QVBoxLayout(self)
 
-        cl = [m for m in metas if m.source == "claude"]
-        cx = [m for m in metas if m.source == "codex"]
+        by_source: dict[str, int] = {}
+        for m in metas:
+            by_source[m.source_badge] = by_source.get(m.source_badge, 0) + 1
+        sources_str = " · ".join(f"{k} {v}" for k, v in by_source.items())
         total_size = sum(m.size for m in metas)
         total_msg = sum(m.n_messages for m in metas)
         total_tok = sum(m.tokens or 0 for m in metas)
@@ -318,7 +338,7 @@ class StatsDialog(QDialog):
         head = QLabel(
             tr("stats_l1", n=len(metas), m=total_msg, s=util.fmt_size(total_size),
                t=util.fmt_tokens(total_tok or None) or "–") + "<br>" +
-            tr("stats_l2", c=len(cl), x=len(cx),
+            tr("stats_l2", sources=sources_str,
                s=sum(1 for m in metas if m.starred),
                r=sum(1 for m in metas if m.running)))
         head.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px;")

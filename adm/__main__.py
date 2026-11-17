@@ -2,11 +2,14 @@
 
   uv run adm            launch the GUI
   uv run adm --selftest parse/scan everything headless + edit round-trip on a copy
+                        (+ fixtures for gemini/qwen/goose/cline/roo/opencode)
   uv run adm --repair   fix claude transcripts with dangling parentUuid/leafUuid
   uv run adm --smoke    launch GUI and auto-close after 4s
   uv run adm --transplant <id|file> --to claude|codex|opencode|gemini|qwen|goose|cline|roo|json
                         [--cwd DIR] [--title T] [--out DIR]
                         [--no-tools] [--reasoning] [--sidechain]
+                        <id> matches any scanned source (claude/codex/opencode/
+                        gemini/qwen/goose/cline/roo)
 """
 from __future__ import annotations
 
@@ -123,7 +126,8 @@ def selftest() -> int:
         assert "selftest title" in txt and "hello from selftest" in txt
         print("   claude backup + append + save + re-edit: OK")
     if cx:
-        m = sorted(cx, key=lambda x: x.size)[0]
+        cands = [x for x in cx if x.n_messages > 0]
+        m = sorted(cands, key=lambda x: x.size)[0]
         tmp = tmpdir / "roll.jsonl"
         shutil.copy(m.path, tmp)
         from adm.models import SessionMeta
@@ -474,6 +478,300 @@ def selftest() -> int:
             else:
                 os.environ["CLAUDE_CONFIG_DIR"] = prev_claude_home
 
+    # ---- new sources: fixtures on temp dirs, full scan/load/edit loops ----
+    print("== new sources (fixtures) ==")
+    import hashlib as _hashlib
+    from adm import (cline_store as cline_st, config as cfg_any,
+                     gemini_store as gem_st, goose_store as goose_st,
+                     opencode_store as oc_st, sources as sources_mod)
+
+    _saved_cfg = {}
+    for _k in ("GEMINI_DIR", "QWEN_DIR", "CLINE_TASKS", "ROO_TASKS",
+               "OPENCODE_DB", "goose_sessions_dir", "APP_DIR"):
+        _saved_cfg[_k] = getattr(cfg_any, _k, None)
+    try:
+        cfg_any.APP_DIR = tmpdir / "app"  # keep fixture paths out of the real cache
+        # ---------- gemini / qwen ----------
+        for tool, home_attr in (("gemini", "GEMINI_DIR"),
+                                ("qwen", "QWEN_DIR")):
+            fcwd = f"D:\\fixture\\{tool}"
+            fhash = _hashlib.sha256(fcwd.encode("utf-8")).hexdigest()
+            gdir = tmpdir / f"{tool}-home"
+            chats = gdir / "tmp" / fhash / "chats"
+            chats.mkdir(parents=True)
+            gdoc = {
+                "sessionId": f"{tool}-fix-001", "projectHash": fhash,
+                "startTime": "2026-01-01T00:00:00.000Z",
+                "lastUpdated": "2026-01-02T00:00:00.000Z",
+                "messages": [
+                    {"id": "m1", "timestamp": "2026-01-01T00:00:01.000Z",
+                     "type": "user", "content": f"hello {tool} fixture"},
+                    {"id": "m2", "timestamp": "2026-01-01T00:00:02.000Z",
+                     "type": "gemini", "content": f"{tool} reply",
+                     "model": "test-model"},
+                ]}
+            (chats / f"session-2026-01-01-{tool}-fix-001.json").write_text(
+                json.dumps(gdoc, indent=2), encoding="utf-8")
+            setattr(cfg_any, home_attr, gdir)
+            ctx = sources_mod.ScanContext(
+                cwd_hints=sources_mod._hash_hints({fcwd}))
+            gm = gem_st.scan(lambda s: None, ctx, tool=tool)
+            assert len(gm) == 1, f"{tool} scan found {len(gm)}"
+            assert gm[0].cwd == fcwd, f"{tool} cwd hint not applied: {gm[0].cwd!r}"
+            gs = gem_st.load(gm[0])
+            assert len(gs.messages) == 2, f"{tool} load: {len(gs.messages)}"
+            ed = gem_st.make_editor(gs)
+            gem_st.apply_text_edits(ed, gs.messages[0], {0: "EDITED SOURCE"})
+            gem_st.append_user_message(ed, gm[0], "appended from selftest")
+            ed.save()
+            gs2 = gem_st.load(gm[0])
+            flat = "\n".join(p.text for m in gs2.messages for p in m.parts)
+            assert "EDITED SOURCE" in flat and "appended from selftest" in flat
+            # tail-merge: an external append made BETWEEN editor creation
+            # and save must survive (prefix guard + tail carried over)
+            fixfile = chats / f"session-2026-01-01-{tool}-fix-001.json"
+            ed = gem_st.make_editor(gs2)
+            gem_st.append_user_message(ed, gm[0], "second local append")
+            gdoc2 = json.loads(fixfile.read_text(encoding="utf-8"))
+            gdoc2["messages"].append(
+                {"id": "ext1", "timestamp": "2026-01-01T00:00:03.000Z",
+                 "type": "gemini", "content": "external tail"})
+            fixfile.write_text(json.dumps(gdoc2, indent=2), encoding="utf-8")
+            ed.save()
+            gs3 = gem_st.load(gm[0])
+            flat3 = "\n".join(p.text for m in gs3.messages for p in m.parts)
+            assert "external tail" in flat3 and "second local append" in flat3, \
+                f"{tool} tail merge lost records"
+            print(f"   {tool}: scan(cwd hint) + load + edit + append + tail-merge: OK")
+
+        # ---------- goose ----------
+        godir = tmpdir / "goose-home"
+        godir.mkdir()
+        (godir / "20260101_000001.json").write_text(json.dumps({
+            "id": "20260101_000001", "description": "goose fixture",
+            "working_dir": "D:\\fixture\\goose",
+            "conversation": {"messages": [
+                {"role": "user", "created": 1767225600,
+                 "content": [{"type": "text", "text": "hello goose"}]},
+                {"role": "assistant", "created": 1767225601,
+                 "content": [
+                     {"type": "text", "text": "goose reply"},
+                     {"type": "toolRequest", "id": "t1", "tool": "shell",
+                      "input": {"command": "ls"}}]},
+            ]},
+            "message_count": 2,
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "updated_at": "2026-01-01T00:00:01.000Z",
+        }, indent=2), encoding="utf-8")
+        cfg_any.goose_sessions_dir = lambda: godir
+        gm = goose_st.scan(lambda s: None)
+        assert len(gm) == 1 and gm[0].cwd == "D:\\fixture\\goose"
+        gs = goose_st.load(gm[0])
+        assert len(gs.messages) == 2
+        assert any(p.kind == "tool_call" for p in gs.messages[1].parts), \
+            "goose toolRequest not mapped to a tool_call part"
+        ed = goose_st.make_editor(gs)
+        goose_st.apply_text_edits(ed, gs.messages[1], {0: "EDITED GOOSE"})
+        ed.delete_records(goose_st.linked_lines(gs, gs.messages[0]))
+        goose_st.append_user_message(ed, gm[0], "goose appended")
+        ed.save()
+        gs2 = goose_st.load(gm[0])
+        roles = [m.role for m in gs2.messages]
+        assert roles == ["assistant", "user"], f"goose delete+append: {roles}"
+        assert gs2.messages[0].parts[0].text == "EDITED GOOSE"
+        print("   goose: scan + load + edit + delete + append: OK")
+
+        # ---------- cline (roo shares the module) ----------
+        tasks_root = tmpdir / "vscode-tasks"
+        task_dir = tasks_root / "1758000000000"
+        task_dir.mkdir(parents=True)
+        hist = [
+            {"role": "user", "ts": 1758000000000, "content": [
+                {"type": "text",
+                 "text": "Working directory: D:\\fixture\\cline\n# environment"}]},
+            {"role": "assistant", "ts": 1758000001000, "content": [
+                {"type": "text", "text": "cline reply"},
+                {"type": "tool_use", "id": "tu1", "name": "Read",
+                 "input": {"file_path": "x.txt"}}]},
+            {"role": "user", "ts": 1758000002000, "content": [
+                {"type": "tool_result", "tool_use_id": "tu1",
+                 "content": "file contents"}]},
+            {"role": "user", "ts": 1758000003000, "content": [
+                {"type": "text", "text": "please fix it"}]},
+        ]
+        (task_dir / "api_conversation_history.json").write_text(
+            json.dumps(hist, indent=2), encoding="utf-8")
+        (task_dir / "ui_messages.json").write_text("[]", encoding="utf-8")
+        (task_dir / "task_metadata.json").write_text("{}", encoding="utf-8")
+        cfg_any.CLINE_TASKS = tasks_root
+        gm = cline_st.scan(lambda s: None, tool="cline")
+        assert len(gm) == 1 and gm[0].cwd == "D:\\fixture\\cline", \
+            f"cline cwd: {gm[0].cwd!r}"
+        assert gm[0].n_messages == 4
+        gs = cline_st.load(gm[0])
+        assert len(gs.messages) == 4
+        # tool_use <-> tool_result pairing
+        linked = cline_st.linked_lines(gs, gs.messages[1])
+        assert linked == {1, 2}, f"cline linked_lines: {linked}"
+        ed = cline_st.make_editor(gs)
+        cline_st.apply_text_edits(ed, gs.messages[1], {0: "EDITED CLINE"})
+        ed.save()
+        gs2 = cline_st.load(gm[0])
+        assert gs2.messages[1].parts[0].text == "EDITED CLINE", \
+            "cline edit did not round-trip"
+        ed2 = cline_st.make_editor(gs2)
+        ed2.delete_records(cline_st.linked_lines(gs2, gs2.messages[1]))
+        cline_st.append_user_message(ed2, gm[0], "cline appended")
+        ed2.save()
+        gs3 = cline_st.load(gm[0])
+        assert len(gs3.messages) == 3, f"cline delete left {len(gs3.messages)}"
+        assert gs3.messages[-1].parts[0].text == "cline appended"
+        print("   cline: scan(cwd parse) + load + tool pairing + edit + delete: OK")
+
+        # ---------- opencode (read-only sqlite) ----------
+        oc_dir = tmpdir / "opencode-home"
+        oc_dir.mkdir()
+        odb = oc_dir / "opencode.db"
+        con = sqlite3.connect(odb)
+        con.executescript("""
+        CREATE TABLE session_v2 (id TEXT, project_id TEXT, workspace_id TEXT,
+            parent_id TEXT, fork_session_id TEXT, directory TEXT, path TEXT,
+            title TEXT, slug TEXT, version TEXT, cost REAL,
+            tokens_input INTEGER, tokens_output INTEGER, agent TEXT,
+            model TEXT, time_created INTEGER, time_updated INTEGER,
+            time_idle INTEGER, time_viewed INTEGER, time_archived INTEGER);
+        CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT,
+            seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);
+        CREATE TABLE event_sequence (aggregate_id TEXT, seq INTEGER,
+            owner_id TEXT);
+        """)
+        con.execute("INSERT INTO session_v2 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ("ses_fix001", "proj1", "ws1", None, None,
+                     "D:/fixture/opencode", None, "opencode fixture", None,
+                     "2.0", 0.0, 100, 50, "build",
+                     '{"id":"test-model","providerID":"x"}',
+                     1758000000000, 1758000005000, 1758000005000,
+                     1758000005000, None))
+        con.execute("INSERT INTO session_message VALUES (?,?,?,?,?,?,?)",
+                    ("msg1", "ses_fix001", "user", 1, 1758000001000, None,
+                     json.dumps({"time": {"created": 1758000001000},
+                                 "text": "hello opencode",
+                                 "files": [], "agents": []})))
+        con.execute("INSERT INTO session_message VALUES (?,?,?,?,?,?,?)",
+                    ("msg2", "ses_fix001", "assistant", 2, 1758000002000, None,
+                     json.dumps({
+                         "time": {"created": 1758000002000},
+                         "agent": "build", "model": {"id": "test-model"},
+                         "content": [
+                             {"type": "reasoning", "text": "thinking…"},
+                             {"type": "text", "text": "opencode reply"},
+                             {"type": "tool", "id": "call_1", "name": "shell",
+                              "state": {"status": "completed",
+                                        "input": {"command": "ls"},
+                                        "content": [{"type": "text",
+                                                     "text": "file-a\nfile-b"}]}}],
+                         "finish": "stop"})))
+        con.commit()
+        con.close()
+        cfg_any.OPENCODE_DB = odb
+        gm = oc_st.scan(lambda s: None)
+        assert len(gm) == 1, f"opencode scan: {len(gm)}"
+        m0 = gm[0]
+        assert not m0.readonly and m0.cwd == "D:/fixture/opencode" \
+            and m0.model == "test-model" and m0.n_messages == 2, \
+            f"opencode meta: ro={m0.readonly} cwd={m0.cwd!r}"
+        gs = oc_st.load(m0)
+        assert [mm.line for mm in gs.messages] == [1, 2], "seq not kept as line"
+        asst = gs.messages[1]
+        kinds = [p.kind for p in asst.parts]
+        assert kinds == ["thinking", "text", "tool_call", "tool_result"], \
+            f"opencode parts: {kinds}"
+        # edit: assistant text part (part idx 1) + tool input (idx 2)
+        ed = oc_st.make_editor(gs)
+        oc_st.apply_text_edits(ed, asst, {1: "EDITED OPENCODE",
+                                          2: '{"command": "dir"}'})
+        oc_st.append_user_message(ed, m0, "appended from selftest")
+        ed.delete_records(oc_st.linked_lines(gs, gs.messages[0]))
+        ed.save()
+        gs2 = oc_st.load(m0)
+        assert len(gs2.messages) == 2, f"opencode delete left {len(gs2.messages)}"
+        assert gs2.messages[0].parts[1].text == "EDITED OPENCODE"
+        assert gs2.messages[0].parts[2].text.strip() == "{\n  \"command\": \"dir\"\n}", \
+            "tool input not rewritten"
+        assert gs2.messages[1].parts[0].text == "appended from selftest"
+        new_seq = max(mm.line for mm in gs2.messages)
+        # event_sequence counter must be at/above the appended seq
+        con = sqlite3.connect(odb)
+        try:
+            ev = con.execute("SELECT seq FROM event_sequence"
+                             " WHERE aggregate_id='ses_fix001'").fetchone()
+        finally:
+            con.close()
+        assert ev and ev[0] >= new_seq, f"seq allocator behind: {ev} < {new_seq}"
+        # external-change guard: touching a snapshot row out from under the
+        # editor must refuse the save (snapshot BEFORE the external write)
+        ed = oc_st.make_editor(gs2)
+        con = sqlite3.connect(odb)
+        con.execute("UPDATE session_message SET data='{}' WHERE seq=2")
+        con.commit()
+        con.close()
+        oc_st.append_user_message(ed, m0, "must not land")
+        try:
+            ed.save()
+            raise SystemExit("opencode editor saved over an external change")
+        except Exception as e:  # noqa: BLE001
+            from adm.jsonlio import FileChangedError as _FCE
+            assert isinstance(e, _FCE), f"expected FileChangedError, got {e!r}"
+        # rename / duplicate / remove on the sqlite store
+        oc_st.rename_session("ses_fix001", "renamed fixture")
+        dup_id = oc_st.duplicate_session(m0)
+        assert dup_id, "duplicate_session failed"
+        gm3 = oc_st.scan(lambda s: None)
+        by_id = {m.id: m for m in gm3}
+        assert by_id["ses_fix001"].title == "renamed fixture"
+        assert by_id[dup_id].n_messages == 2, "duplicate lost messages"
+        dup_meta = by_id[dup_id]
+        assert oc_st.remove_session(dup_meta), "remove_session failed"
+        assert len(oc_st.scan(lambda s: None)) == 1
+        assert sources_mod.editable("opencode"), "opencode must be editable"
+        print("   opencode: scan + load + edit + append + delete + guard"
+              " + rename + duplicate + remove: OK")
+
+        # ---------- registry wiring ----------
+        assert sources_mod.load(m0).total_lines == 2, "sources.load dispatch"
+        assert sources_mod.resume_command(m0) == "opencode --session ses_fix001"
+        assert sources_mod.resume_command(
+            SessionMeta(source="cline", id="t", path="p", project="p")) is None
+        print("   sources registry: load/resume dispatch: OK")
+
+        # ---------- meta cache ----------
+        from adm import meta_cache
+        gm_a = goose_st.scan(lambda s: None)
+        assert gm_a and gm_a[0].display_title == "goose fixture"
+        gm_b = goose_st.scan(lambda s: None)  # warm: served from cache
+        assert [x.id for x in gm_b] == [x.id for x in gm_a]
+        assert gm_b[0].n_messages == gm_a[0].n_messages
+        # a file change must invalidate its entry (title comes from the doc)
+        godir.joinpath("20260101_000001.json").write_text(json.dumps({
+            "id": "20260101_000001", "description": "goose fixture v2",
+            "working_dir": "D:\\fixture\\goose",
+            "conversation": {"messages": [
+                {"role": "user", "created": 1767225600,
+                 "content": [{"type": "text", "text": "hello goose"}]}]},
+        }, indent=2), encoding="utf-8")
+        gm_c = goose_st.scan(lambda s: None)
+        assert gm_c[0].display_title == "goose fixture v2", \
+            f"cache not invalidated: {gm_c[0].display_title!r}"
+        meta_cache.save()
+        cache_doc = json.loads((tmpdir / "app" / "scan_cache.json")
+                               .read_text(encoding="utf-8"))
+        assert cache_doc["entries"], "cache file empty"
+        print("   meta cache: warm reuse + invalidation + persist: OK")
+    finally:
+        for _k, _v in _saved_cfg.items():
+            if _v is not None:
+                setattr(cfg_any, _k, _v)
+
     _cfg.BACKUP_DIR = orig_backup
     print("SELFTEST", "PASS" if ok else "FAIL")
     return 0 if ok else 1
@@ -573,7 +871,8 @@ def main() -> int:
     except ImportError as e:
         print(f"PyQt6 missing: {e}\nrun: uv sync", file=sys.stderr)
         return 2
-    from adm import config, i18n
+    from PyQt6.QtGui import QIcon
+    from adm import config, i18n, util
     from adm.ui import theme
     from adm.ui.main_window import MainWindow
 
@@ -582,6 +881,9 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.QSS)
     app.setApplicationName("AI Dialog Manager")
+    _ico = util.asset_path("app.ico")
+    if _ico.exists():
+        app.setWindowIcon(QIcon(str(_ico)))
     win = MainWindow()
     win.show()
     if "--smoke" in args and os.environ.get("ADM_AUTOTEST"):
@@ -681,6 +983,9 @@ def _synthetic_ui_check(win) -> None:
                           total_lines=400)
     cv = win.chat
     real = cv.session
+    # the user's persisted "newest first" setting would change pagination —
+    # this check assumes forward order (it tests reverse explicitly below)
+    cv.set_reverse(False)
     cv.set_session(synth)
     assert cv._rendered == PAGE, f"expected first page {PAGE}, got {cv._rendered}"
     # a jump to a deep message must auto-expand pages instead of forcing the

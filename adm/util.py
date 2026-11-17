@@ -4,7 +4,9 @@ from __future__ import annotations
 import ctypes
 import json
 import re
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 _ISO_RE = re.compile(
     r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z?$"
@@ -113,6 +115,14 @@ def path_to_display(p: str) -> str:
 
 
 _KERNEL32 = None
+
+
+def asset_path(name: str) -> Path:
+    """Resolve a bundled asset (adm/assets/…): PyInstaller unpacks datas to
+    <_MEIPASS>/assets, a source checkout keeps them in adm/assets."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", ".")) / "assets" / name
+    return Path(__file__).resolve().parent / "assets" / name
 
 
 def pid_alive(pid: int) -> bool:

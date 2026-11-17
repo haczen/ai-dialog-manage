@@ -27,7 +27,9 @@ ROLE_COLORS = {
 QSS = f"""
 QWidget {{ background: {BG}; color: {TEXT}; font-size: 13px; }}
 QMainWindow {{ background: {BG}; }}
-QToolBar {{ background: {PANEL}; border: 0; border-bottom: 1px solid {BORDER}; spacing: 4px; padding: 4px 8px; }}
+QToolBar {{ background: {PANEL}; border: 0; border-bottom: 1px solid {BORDER};
+    spacing: 3px; padding: 5px 10px; }}
+QToolBar::separator {{ width: 1px; background: {BORDER}; margin: 6px 9px; }}
 QToolButton {{ background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 5px 10px; color: {TEXT}; }}
 QToolButton:hover {{ background: {PANEL_ALT}; border-color: {BORDER}; }}
 QToolButton:pressed {{ background: {BORDER}; }}
@@ -35,7 +37,10 @@ QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox {{
     background: {PANEL}; border: 1px solid {BORDER}; border-radius: 6px; padding: 5px 8px;
     selection-background-color: {ACCENT}; selection-color: #fff;
 }}
-QComboBox QAbstractItemView {{ background: {PANEL}; border: 1px solid {BORDER}; outline: 0; }}
+QComboBox:hover, QLineEdit:hover {{ border-color: #4a4d5c; }}
+QComboBox:focus, QLineEdit:focus {{ border-color: {ACCENT}; }}
+QComboBox QAbstractItemView {{ background: {PANEL}; border: 1px solid {BORDER}; outline: 0;
+    selection-background-color: #2d3a63; }}
 QTableView {{ background: {BG}; border: 1px solid {BORDER}; gridline-color: transparent;
     alternate-background-color: #1f2027; selection-background-color: #2d3a63; selection-color: #fff; }}
 QHeaderView::section {{ background: {PANEL}; color: {DIM}; border: 0; border-bottom: 1px solid {BORDER};
@@ -56,10 +61,13 @@ QTabBar::tab {{ background: {PANEL}; color: {DIM}; padding: 6px 14px; border: 1p
     border-bottom: 0; border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 2px; }}
 QTabBar::tab:selected {{ background: {PANEL_ALT}; color: {TEXT}; }}
 QPushButton {{ background: {PANEL_ALT}; border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 6px 14px; color: {TEXT}; }}
-QPushButton:hover {{ border-color: {ACCENT}; }}
-QPushButton:pressed {{ background: {BORDER}; }}
+    padding: 5px 12px; color: {TEXT}; }}
+QPushButton:hover {{ border-color: {ACCENT}; background: #2d3348; }}
+QPushButton:pressed {{ background: #333950; }}
 QPushButton:disabled {{ color: #666; }}
+QPushButton:checked {{ background: #2d3a63; border-color: {ACCENT}; color: #fff; }}
+QPushButton:checked:hover {{ background: #354474; }}
+QPushButton[compact="true"] {{ padding: 3px 9px; font-size: 12px; border-radius: 5px; }}
 QStatusBar {{ background: {PANEL}; border-top: 1px solid {BORDER}; color: {DIM}; }}
 QCheckBox {{ spacing: 6px; }}
 QToolTip {{ background: {PANEL_ALT}; color: {TEXT}; border: 1px solid {BORDER}; padding: 4px; }}
@@ -67,6 +75,8 @@ QMenu {{ background: {PANEL}; border: 1px solid {BORDER}; padding: 4px; }}
 QMenu::item {{ padding: 6px 22px; border-radius: 4px; }}
 QMenu::item:selected {{ background: {PANEL_ALT}; }}
 QFrame[msgframe="true"] {{ background: #202129; border: 1px solid {BORDER}; border-radius: 8px; }}
+QLabel[applogo="true"] {{ color: {TEXT}; font-size: 14px; font-weight: 700; background: transparent; }}
+QLabel[applogo2="true"] {{ color: {DIM}; font-size: 11px; background: transparent; }}
 """
 
 

@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import util
+from . import sources, util
 from .models import SessionMeta
 
 
@@ -35,7 +35,8 @@ def open_terminal(command: str, cwd: str) -> None:
 
 
 def resume(meta: SessionMeta) -> None:
-    if meta.source == "claude":
-        open_terminal(f"claude --resume {meta.id}", meta.cwd)
-    else:
-        open_terminal(f"codex resume {meta.id}", meta.cwd)
+    cmd = sources.resume_command(meta)
+    if cmd is None:
+        return  # sources without a CLI (cline/roo) are handled by the UI
+    open_terminal(cmd, meta.cwd)
+

@@ -350,11 +350,8 @@ def _ensure_cwd(cwd: str) -> str:
 # ---------------------------------------------------------------- loaders
 
 def load_source(meta: SessionMeta) -> LoadedSession:
-    if meta.source == "claude":
-        return claude_store.load_claude(meta)
-    if meta.source == "codex":
-        return codex_store.load_codex(meta)
-    raise TransplantError(f"unsupported source: {meta.source}")
+    from . import sources
+    return sources.load(meta)
 
 
 def _meta_from_file(path: Path) -> SessionMeta:
@@ -385,10 +382,10 @@ def _meta_from_file(path: Path) -> SessionMeta:
 
 
 def find_session(source: str) -> SessionMeta:
-    """Resolve a session id / id prefix to a scanned Claude or Codex session."""
-    cl = claude_store.scan_claude()
-    cx = codex_store.scan_codex()
-    hits = [m for m in cl + cx
+    """Resolve a session id / id prefix to any scanned session."""
+    from . import sources
+    all_metas = sources.scan_all()
+    hits = [m for m in all_metas
             if m.id == source or m.id.lower().startswith(source.lower())]
     if not hits:
         raise TransplantError(f"session not found: {source}")

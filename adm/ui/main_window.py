@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import traceback
 import uuid as uuidlib
 from pathlib import Path
 
 from PyQt6.QtCore import QFileSystemWatcher, QSettings, QThread, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtGui import QAction, QColor, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton, QSizePolicy,
@@ -16,10 +17,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import claude_store, codex_store, launcher, local_store, transfer, transplant, util
+from .. import claude_store, codex_store, launcher, local_store, opencode_store, sources, transfer, transplant, util
 from ..i18n import role_label, set_lang, tr
 from ..jsonlio import FileChangedError
-from ..models import LoadedSession, Message, SessionMeta
+from ..models import SOURCE_COLORS, LoadedSession, Message, SessionMeta
 from ..util import MIN_DT
 from ..scanner import ScanThread
 from . import theme
@@ -65,10 +66,7 @@ class LoadThread(QThread):
 
     def run(self) -> None:
         try:
-            if self.meta.source == "claude":
-                sess = claude_store.load_claude(self.meta)
-            else:
-                sess = codex_store.load_codex(self.meta)
+            sess = sources.load(self.meta)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
             sess = None
@@ -82,6 +80,8 @@ class MainWindow(QMainWindow):
         self.metas: list[SessionMeta] = []
         self.loaded: LoadedSession | None = None
         self.load_thread: LoadThread | None = None
+        self._retired_loads: list[LoadThread] = []
+        self._loading_key: tuple[str, str] | None = None
         self.scan_thread: ScanThread | None = None
         self.search_dlg: GlobalSearchDialog | None = None
         self._watcher: QFileSystemWatcher | None = None
@@ -100,6 +100,21 @@ class MainWindow(QMainWindow):
         tb = QToolBar()
         tb.setMovable(False)
         self.addToolBar(tb)
+        # app identity, then two action groups: global (app-level) first,
+        # per-session actions after the separator — smaller and quieter
+        logo_pm = QPixmap(str(util.asset_path("app_icon.png")))
+        if not logo_pm.isNull():
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(logo_pm.scaled(
+                24, 24, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation))
+            icon_lbl.setFixedSize(26, 26)
+            tb.addWidget(icon_lbl)
+        logo = QLabel(tr("app_short"))
+        logo.setProperty("applogo", True)
+        self._tr_closures.append(lambda: logo.setText(tr("app_short")))
+        tb.addWidget(logo)
+        tb.addSeparator()
         for key, tip_key, slot in [
             ("tb_refresh", "tip_refresh", self.refresh),
             ("tb_search", "tip_search", self.global_search),
@@ -107,6 +122,7 @@ class MainWindow(QMainWindow):
         ]:
             b = QPushButton(tr(key))
             b.setToolTip(tr(tip_key))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(slot)
             self._tr_closures.append(
                 lambda b=b, k=key, t=tip_key: (b.setText(tr(k)), b.setToolTip(tr(t))))
@@ -124,6 +140,8 @@ class MainWindow(QMainWindow):
         ]:
             b = QPushButton(tr(key))
             b.setToolTip(tr(tip_key))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setProperty("compact", True)
             b.clicked.connect(slot)
             self._tr_closures.append(
                 lambda b=b, k=key, t=tip_key: (b.setText(tr(k)), b.setToolTip(tr(t))))
@@ -177,9 +195,11 @@ class MainWindow(QMainWindow):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(6, 6, 6, 6)
         lv.setSpacing(6)
+        # row 1 — what to look at: text filter + source + project
         fbar = QHBoxLayout()
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText(tr("filter_ph"))
+        self.filter_edit.setClearButtonEnabled(True)
         self._tr_closures.append(
             lambda: self.filter_edit.setPlaceholderText(tr("filter_ph")))
         self.filter_edit.textChanged.connect(self._apply_filters)
@@ -192,41 +212,52 @@ class MainWindow(QMainWindow):
         self.project_combo.setMinimumWidth(140)
         self.project_combo.currentTextChanged.connect(self._apply_filters)
         fbar.addWidget(self.project_combo)
+        lv.addLayout(fbar)
+        # row 2 — how the list is ordered/filtered: compact toggles
+        fbar2 = QHBoxLayout()
         self.sort_combo = QComboBox()
         self._fill_sort_combo()
         self.sort_combo.currentIndexChanged.connect(self._apply_sort)
-        fbar.addWidget(self.sort_combo)
+        fbar2.addWidget(self.sort_combo)
         self.sort_dir_btn = QPushButton("↓")
         self.sort_dir_btn.setFixedWidth(30)
         self.sort_dir_btn.setToolTip(tr("sort_tip"))
+        self.sort_dir_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.sort_dir_btn.clicked.connect(self._toggle_sort_dir)
         self._tr_closures.append(
             lambda: self.sort_dir_btn.setToolTip(tr("sort_tip")))
-        fbar.addWidget(self.sort_dir_btn)
-        self.star_btn = QPushButton(tr("starred_off"))
-        self.star_btn.setCheckable(True)
-        self.star_btn.toggled.connect(self._apply_filters)
-        fbar.addWidget(self.star_btn)
-        self.hide_arch_btn = QPushButton(tr("hide_archived"))
-        self.hide_arch_btn.setCheckable(True)
-        self.hide_arch_btn.setChecked(True)
-        self.hide_arch_btn.toggled.connect(self._apply_filters)
-        fbar.addWidget(self.hide_arch_btn)
-        self.hide_sub_btn = QPushButton(tr("hide_subagents"))
-        self.hide_sub_btn.setCheckable(True)
-        self.hide_sub_btn.setChecked(True)
-        self.hide_sub_btn.toggled.connect(self._apply_filters)
-        fbar.addWidget(self.hide_sub_btn)
-        self.group_btn = QPushButton(tr("group_by"))
-        self.group_btn.setCheckable(True)
-        self.group_btn.toggled.connect(self._set_group_mode)
-        fbar.addWidget(self.group_btn)
+        fbar2.addWidget(self.sort_dir_btn)
+
+        def _toggle(text: str, checked: bool, slot, tip: str = "") -> QPushButton:
+            b = QPushButton(text)
+            b.setCheckable(True)
+            b.setChecked(checked)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setProperty("compact", True)
+            if tip:
+                b.setToolTip(tip)
+            b.toggled.connect(slot)
+            return b
+
+        self.star_btn = _toggle(tr("starred_off"), False,
+                                self._apply_filters, tr("tip_star"))
+        fbar2.addWidget(self.star_btn)
+        self.hide_arch_btn = _toggle(tr("hide_archived"), True,
+                                     self._apply_filters)
+        fbar2.addWidget(self.hide_arch_btn)
+        self.hide_sub_btn = _toggle(tr("hide_subagents"), True,
+                                    self._apply_filters)
+        fbar2.addWidget(self.hide_sub_btn)
+        self.group_btn = _toggle(tr("group_by"), False,
+                                 lambda on: self._set_group_mode(on))
+        fbar2.addWidget(self.group_btn)
+        fbar2.addStretch(1)
         self._tr_closures += [
             lambda: self.hide_arch_btn.setText(tr("hide_archived")),
             lambda: self.hide_sub_btn.setText(tr("hide_subagents")),
             lambda: self.group_btn.setText(tr("group_by")),
         ]
-        lv.addLayout(fbar)
+        lv.addLayout(fbar2)
 
         self.model = SessionTableModel()
         self.proxy = SessionFilterProxy()
@@ -280,10 +311,16 @@ class MainWindow(QMainWindow):
         rv.addWidget(self.sub_lbl)
         vbar = QHBoxLayout()
         self.addmsg_btn = QPushButton(tr("addmsg"))
+        self.addmsg_btn.setProperty("compact", True)
+        self.addmsg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.addmsg_btn.clicked.connect(self.add_message)
         self.reload_btn = QPushButton(tr("reload"))
+        self.reload_btn.setProperty("compact", True)
+        self.reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.reload_btn.clicked.connect(lambda: self._load_selected(force=True))
         self.export_btn = QPushButton(tr("exportmd"))
+        self.export_btn.setProperty("compact", True)
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_btn.clicked.connect(self.export_md)
         self._tr_closures += [
             lambda: self.addmsg_btn.setText(tr("addmsg")),
@@ -323,8 +360,8 @@ class MainWindow(QMainWindow):
         self.source_combo.blockSignals(True)
         self.source_combo.clear()
         self.source_combo.addItem(tr("all"), "All")
-        self.source_combo.addItem("Claude", "Claude")
-        self.source_combo.addItem("Codex", "Codex")
+        for _key, label in sources.combo_items():
+            self.source_combo.addItem(label, label)
         ix = self.source_combo.findData(cur)
         self.source_combo.setCurrentIndex(max(0, ix))
         self.source_combo.blockSignals(False)
@@ -398,14 +435,20 @@ class MainWindow(QMainWindow):
             self.project_combo.setCurrentIndex(max(0, ix))
         self.project_combo.blockSignals(False)
         self.model.set_rows(metas)
-        n_claude = sum(1 for m in metas if m.source == "claude")
-        self.status_lbl.setText(tr("status_sessions", n=len(metas), c=n_claude,
-                                   x=len(metas) - n_claude))
+        by_source: dict[str, int] = {}
+        for m in metas:
+            by_source[m.source_badge] = by_source.get(m.source_badge, 0) + 1
+        detail = " · ".join(f"{k} {v}" for k, v in by_source.items())
+        text = tr("status_sessions", n=len(metas))
+        if detail:
+            text += " · " + detail
+        self.status_lbl.setText(text)
         self._install_watcher()
 
     def _install_watcher(self) -> None:
         from .. import config as cfg
         dirs = set()
+        files = set()
         # New session files land inside a project dir (claude) or a YYYY/MM/DD
         # day dir (codex). QFileSystemWatcher does NOT report changes in
         # subdirectories of a watched path, so watch every existing level.
@@ -422,14 +465,40 @@ class MainWindow(QMainWindow):
                     for sub2 in sub.iterdir():
                         if sub2.is_dir():
                             dirs.add(str(sub2))
+        # gemini/qwen: <dir>/tmp/<hash>/chats/session-*.json — two levels
+        for base in (cfg.GEMINI_DIR, cfg.QWEN_DIR):
+            tmp = base / "tmp"
+            if tmp.is_dir():
+                dirs.add(str(tmp))
+                for h in tmp.iterdir():
+                    if h.is_dir():
+                        chats = h / "chats"
+                        if chats.is_dir():
+                            dirs.add(str(chats))
+        goose = cfg.goose_sessions_dir()
+        if goose.is_dir():
+            dirs.add(str(goose))
+        for tasks in (cfg.CLINE_TASKS, cfg.ROO_TASKS):
+            if tasks.is_dir():
+                dirs.add(str(tasks))
+                for t in tasks.iterdir():
+                    if t.is_dir():
+                        dirs.add(str(t))
+        if cfg.OPENCODE_DB.exists():
+            files.add(str(cfg.OPENCODE_DB))
         if self._watcher is not None:
-            self._watcher.removePaths(self._watcher.directories())
+            self._watcher.removePaths(self._watcher.directories()
+                                      + self._watcher.files())
         else:
             self._watcher = QFileSystemWatcher(self)
             self._watcher.directoryChanged.connect(
                 lambda _: self._refresh_timer.start())
+        self._watcher.fileChanged.connect(
+            lambda _: self._refresh_timer.start())
         if dirs:
             self._watcher.addPaths(sorted(dirs))
+        if files:
+            self._watcher.addPaths(sorted(files))
 
     def _apply_filters(self) -> None:
         p = self.proxy
@@ -535,8 +604,8 @@ class MainWindow(QMainWindow):
                                       util.fmt_size(m.size),
                                       util.fmt_dt(m.updated or m.created)])
                 it.setData(0, Qt.ItemDataRole.UserRole, m)
-                it.setForeground(1, QColor("#5b8cff" if m.source == "claude"
-                                           else "#4ec9a8"))
+                it.setForeground(1, QColor(SOURCE_COLORS.get(m.source,
+                                                            "#9aa1b2")))
                 if m.archived:
                     for c in range(5):
                         it.setForeground(c, QColor("#777d8c"))
@@ -649,8 +718,18 @@ class MainWindow(QMainWindow):
             if line is not None:
                 self.chat.queue_jump(line)
             return
+        # a click while a previous load is in flight supersedes it: retire
+        # the old thread (keep it referenced until it finishes — deleting a
+        # running QThread crashes) and let its result be dropped as stale
         if self.load_thread and self.load_thread.isRunning():
-            return
+            old = self.load_thread
+            try:
+                old.loaded.disconnect()
+            except TypeError:
+                pass  # already disconnected
+            self._retired_loads.append(old)
+            old.finished.connect(lambda t=old: self._retired_loads.remove(t))
+        self._loading_key = (m.source, m.id)
         self.title_lbl.setText(m.display_title)
         self.sub_lbl.setText(tr("loading"))
         self.chat.set_session(None)
@@ -667,6 +746,8 @@ class MainWindow(QMainWindow):
         if sess is None:
             self.sub_lbl.setText(tr("load_failed"))
             return
+        if self._loading_key != (sess.meta.source, sess.meta.id):
+            return  # stale — a newer click superseded this load
         self.loaded = sess
         m = sess.meta
         rec = local_store.get(m.source, m.id)
@@ -697,8 +778,15 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ actions
     def resume_selected(self) -> None:
         m = self._selected() or (self.loaded.meta if self.loaded else None)
-        if m:
-            launcher.resume(m)
+        if not m:
+            return
+        if sources.resume_command(m) is None:
+            # cline/roo have no CLI — point at the VS Code history instead
+            QMessageBox.information(
+                self, tr("resume_ext_title"),
+                tr("resume_ext_body", ext=m.source_badge, path=m.path))
+            return
+        launcher.resume(m)
 
     def toggle_star(self) -> None:
         m = self._selected() or (self.loaded.meta if self.loaded else None)
@@ -735,8 +823,20 @@ class MainWindow(QMainWindow):
                 ed.note_snapshot("claude", m.id)
                 claude_store.append_title(ed, m.id, title)
                 ed.save()
-            else:
+            elif m.source == "codex":
                 codex_store.rename_thread(m.id, title)
+            elif m.source == "opencode":
+                opencode_store.rename_session(m.id, title)
+            else:
+                # sources without a native title field (or read-only ones):
+                # keep the new name in the local sidecar only
+                local_store.update(m.source, m.id, custom_title=title)
+                m.custom_title = title
+                self.model.update_row(m)
+                self.title_lbl.setText(m.display_title)
+                if self.loaded and self.loaded.meta.id == m.id:
+                    self.loaded.meta.custom_title = title
+                return
         except FileChangedError:
             QMessageBox.warning(self, tr("changed_disk_title"),
                                 tr("changed_disk_short"))
@@ -758,7 +858,7 @@ class MainWindow(QMainWindow):
             return
         if m.source != "codex":
             QMessageBox.information(self, tr("arch_claude_title"),
-                                    tr("arch_claude_body"))
+                                    tr("arch_none_body", source=m.source_badge))
             return
         try:
             codex_store.set_archived(m.id, not m.archived)
@@ -773,11 +873,16 @@ class MainWindow(QMainWindow):
         m = self._selected() or (self.loaded.meta if self.loaded else None)
         if not m:
             return
+        if not sources.editable(m.source):
+            self._readonly_warn(m)
+            return
         try:
             if m.source == "claude":
                 new_id = _duplicate_claude(m)
-            else:
+            elif m.source == "codex":
                 new_id = codex_store.duplicate_session(m)
+            else:
+                new_id = sources.store_for(m.source).duplicate_session(m)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, tr("del_failed"), str(e))
             return
@@ -785,6 +890,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self, tr("dup_done_title"), tr("dup_done_body", id=new_id))
             self.refresh()
+
+    def _readonly_warn(self, m: SessionMeta) -> None:
+        QMessageBox.information(self, tr("readonly_title"),
+                                tr("readonly_body", source=m.source_badge))
 
     # ------------------------------------------------------- consciousness upload
     def upload_selected(self) -> None:
@@ -934,10 +1043,7 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText(f"{i + 1}/{len(metas)} {m.display_title[:40]}")
             QApplication.processEvents()
             try:
-                if m.source == "claude":
-                    sess = claude_store.load_claude(m)
-                else:
-                    sess = codex_store.load_codex(m)
+                sess = sources.load(m)
                 fname = f"{_safe_name(m.display_title)[:60]}-{m.id[:8]}.md"
                 export_markdown(sess, str(Path(d) / fname))
                 ok += 1
@@ -952,6 +1058,10 @@ class MainWindow(QMainWindow):
     def delete_selected(self) -> None:
         metas = self.selected_metas()
         if not metas:
+            return
+        ro = [m for m in metas if not sources.editable(m.source)]
+        if ro:
+            self._readonly_warn(ro[0])
             return
         total = sum(m.size for m in metas)
         if len(metas) == 1:
@@ -980,12 +1090,20 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def _remove_session(self, m: SessionMeta) -> bool:
-        """Backup + delete one session file (and its codex sqlite rows)."""
+        """Backup + delete one session (file / task dir + codex sqlite rows)."""
         from ..jsonlio import make_backup
         from .. import config as cfg
+        if m.source == "opencode":
+            # sqlite rows: backup via the sqlite backup API + row deletes
+            return opencode_store.remove_session(m)
         try:
-            make_backup(m.path, m.source, m.id)
-            Path(m.path).unlink(missing_ok=True)
+            if m.source in ("cline", "roo"):
+                # the task is the whole folder: history + ui_messages + metadata
+                make_backup(m.path, m.source, m.id, ext=".json")
+                shutil.rmtree(Path(m.path).parent, ignore_errors=True)
+            else:
+                make_backup(m.path, m.source, m.id)
+                Path(m.path).unlink(missing_ok=True)
             if m.source == "codex":
                 try:
                     codex_store.invalidate_history(m.id)
@@ -1005,24 +1123,21 @@ class MainWindow(QMainWindow):
         m = self.loaded.meta
         if m.running and not _confirm(self, tr("run_title"), tr("run_body")):
             return
+        if not sources.editable(m.source):
+            self._readonly_warn(m)
+            return
         dlg = MessageEditDialog(msg, self)
         if dlg.exec() != MessageEditDialog.DialogCode.Accepted:
             return
         try:
-            if m.source == "claude":
-                ed = claude_store.make_editor(self.loaded)
-                if dlg.use_raw:
-                    claude_store.apply_raw_edit(ed, msg, dlg.raw_json())
-                else:
-                    claude_store.apply_text_edits(ed, msg, dlg.new_texts())
-                ed.save()
+            store = sources.store_for(m.source)
+            ed = store.make_editor(self.loaded)
+            if dlg.use_raw:
+                store.apply_raw_edit(ed, msg, dlg.raw_json())
             else:
-                ed = codex_store.make_editor(self.loaded)
-                if dlg.use_raw:
-                    codex_store.apply_raw_edit(ed, msg, dlg.raw_json())
-                else:
-                    codex_store.apply_text_edits(ed, msg, dlg.new_texts())
-                ed.save()
+                store.apply_text_edits(ed, msg, dlg.new_texts())
+            ed.save()
+            if m.source == "codex":
                 codex_store.invalidate_history(m.id)
         except FileChangedError:
             QMessageBox.warning(self, tr("changed_disk_title"),
@@ -1044,7 +1159,10 @@ class MainWindow(QMainWindow):
         if not self.loaded or not msgs:
             return
         m = self.loaded.meta
-        store = claude_store if m.source == "claude" else codex_store
+        if not sources.editable(m.source):
+            self._readonly_warn(m)
+            return
+        store = sources.store_for(m.source)
         linked: set[int] = set()
         for msg in msgs:
             linked |= store.linked_lines(self.loaded, msg)
@@ -1097,21 +1215,29 @@ class MainWindow(QMainWindow):
         if not self.loaded:
             return
         m = self.loaded.meta
+        if not sources.editable(m.source):
+            self._readonly_warn(m)
+            return
         dlg = AddMessageDialog(self)
         if m.running:
             dlg.warn.setText(tr("add_warn"))
         if dlg.exec() != AddMessageDialog.DialogCode.Accepted or not dlg.text():
             return
         try:
-            ed = claude_store.make_editor(self.loaded) if m.source == "claude" \
-                else codex_store.make_editor(self.loaded)
             if m.source == "claude":
+                ed = claude_store.make_editor(self.loaded)
                 claude_store.append_user_message(ed, m.id, m.cwd, dlg.text())
-            else:
+                ed.save()
+            elif m.source == "codex":
+                ed = codex_store.make_editor(self.loaded)
                 codex_store.append_user_message(ed, dlg.text())
-            ed.save()
-            if m.source == "codex":
+                ed.save()
                 codex_store.invalidate_history(m.id)
+            else:
+                store = sources.store_for(m.source)
+                ed = store.make_editor(self.loaded)
+                store.append_user_message(ed, m, dlg.text())
+                ed.save()
         except FileChangedError:
             QMessageBox.warning(self, tr("changed_disk_title"),
                                 tr("changed_disk_short"))

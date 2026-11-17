@@ -49,7 +49,7 @@ from pathlib import Path
 
 from . import codex_store, config, local_store, util
 from .jsonlio import read_lines
-from .models import SessionMeta
+from .models import SOURCE_BADGES, SessionMeta
 
 BUNDLE_VERSION = 1
 
@@ -234,29 +234,53 @@ def _export_transplant(meta: SessionMeta, bundle: Path) -> dict | None:
     }
 
 
+def _export_neutral(meta: SessionMeta, bundle: Path) -> dict:
+    """Newer sources (opencode/gemini/qwen/goose/cline/roo) have no
+    single-file native transcript the installer could restore, so the
+    bundle carries a neutral JSONL + the pre-rendered transplant/ tree
+    (restore-*.sh / .bat install into any target tool)."""
+    from . import transplant
+
+    session = transplant.load_source(meta)
+    messages = transplant.build_transcript(
+        session.messages, transplant.TransplantOptions())
+    lines = [json.dumps({"role": m.role, "text": m.text,
+                         "time": _iso(m.ts)},
+                        ensure_ascii=False) for m in messages]
+    (bundle / "session.jsonl").write_text(
+        "\n".join(lines) + ("\n" if lines else ""),
+        encoding="utf-8", newline="\n")
+    return {"subagents": []}
+
+
 def export_session(meta: SessionMeta, dest_root: Path,
                    *, new_id: str | None = None) -> Path:
     """Write one portable bundle under dest_root and return its folder."""
     dest_root = Path(dest_root)
     dest_root.mkdir(parents=True, exist_ok=True)
-    sid = new_id or (str(uuidlib.uuid4()) if meta.source == "claude"
-                     else codex_store.new_session_id())
+    sid = new_id or (codex_store.new_session_id() if meta.source == "codex"
+                     else str(uuidlib.uuid4()))
     bundle = _unique_dir(dest_root / f"{safe_name(meta.display_title)}-{sid[:8]}")
     bundle.mkdir(parents=True)
 
     extra: dict = {}
+    same_tool_install = meta.source in ("claude", "codex")
     if meta.source == "claude":
         extra = _export_claude(meta, bundle, sid)
-    else:
+    elif meta.source == "codex":
         extra = _export_codex(meta, bundle, sid)
+    else:
+        extra = _export_neutral(meta, bundle)
 
     local = local_store.get(meta.source, meta.id)
     transplant_meta = _export_transplant(meta, bundle)
+    source_name = {"claude": "Claude Code", "codex": "Codex"}.get(
+        meta.source) or SOURCE_BADGES.get(meta.source, meta.source)
     metadata = {
         "bundle_version": BUNDLE_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": meta.source,
-        "source_name": "Claude Code" if meta.source == "claude" else "Codex",
+        "source_name": source_name,
         "new_id": sid,
         "original_id": meta.id,
         "title": meta.display_title,
@@ -286,22 +310,25 @@ def export_session(meta: SessionMeta, dest_root: Path,
     (bundle / "metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8", newline="\n")
-    (bundle / "install.py").write_text(INSTALL_PY, encoding="utf-8", newline="\n")
-    (bundle / "install.ps1").write_text(INSTALL_PS1, encoding="utf-8", newline="\n")
-    (bundle / "install.bat").write_text(INSTALL_BAT, encoding="utf-8", newline="\r\n")
-    (bundle / "install.sh").write_text(
-        _fill(INSTALL_SH, {
-            "SOURCE": _sh_quote(meta.source),
-            "NEW_ID": _sh_quote(sid),
-            "ORIG_CWD_JSON": _sh_quote(_json_escaped(meta.cwd or "")),
-            "TITLE": _sh_quote(_one_line(meta.display_title, 300)),
-            "FIRST_USER": _sh_quote(_one_line(meta.preview, 500)),
-            "PREVIEW": _sh_quote(_one_line(meta.preview, 500)),
-            "MODEL": _sh_quote(_one_line(meta.model or "custom", 120)),
-            "TOKENS": str(meta.tokens or 0),
-            "TRANSCRIPT": _sh_quote("session.jsonl"),
-        }),
-        encoding="utf-8", newline="\n")
+    # install.* restores the ORIGINAL tool's format — only claude/codex have
+    # one; the other sources get the cross-tool restore-* scripts below.
+    if same_tool_install:
+        (bundle / "install.py").write_text(INSTALL_PY, encoding="utf-8", newline="\n")
+        (bundle / "install.ps1").write_text(INSTALL_PS1, encoding="utf-8", newline="\n")
+        (bundle / "install.bat").write_text(INSTALL_BAT, encoding="utf-8", newline="\r\n")
+        (bundle / "install.sh").write_text(
+            _fill(INSTALL_SH, {
+                "SOURCE": _sh_quote(meta.source),
+                "NEW_ID": _sh_quote(sid),
+                "ORIG_CWD_JSON": _sh_quote(_json_escaped(meta.cwd or "")),
+                "TITLE": _sh_quote(_one_line(meta.display_title, 300)),
+                "FIRST_USER": _sh_quote(_one_line(meta.preview, 500)),
+                "PREVIEW": _sh_quote(_one_line(meta.preview, 500)),
+                "MODEL": _sh_quote(_one_line(meta.model or "custom", 120)),
+                "TOKENS": str(meta.tokens or 0),
+                "TRANSCRIPT": _sh_quote("session.jsonl"),
+            }),
+            encoding="utf-8", newline="\n")
     (bundle / "README.md").write_text(
         _readme(metadata), encoding="utf-8", newline="\n")
     if transplant_meta:

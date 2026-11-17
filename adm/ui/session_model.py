@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor
 from .. import util
 from ..i18n import tr
 from ..util import MIN_DT
-from ..models import SessionMeta
+from ..models import SOURCE_COLORS, SessionMeta
 
 COLS = ["★", "col_source", "col_title", "col_project", "col_msgs", "col_size",
         "col_tokens", "col_updated", "col_created", "col_status"]
@@ -106,7 +106,7 @@ class SessionTableModel(QAbstractTableModel):
             if c == 0 and m.starred:
                 return QColor("#e9c46a")
             if c == 1:
-                return QColor("#5b8cff" if m.source == "claude" else "#4ec9a8")
+                return QColor(SOURCE_COLORS.get(m.source, "#9aa1b2"))
             if c == 9:
                 if m.running:
                     return QColor("#5ec269")

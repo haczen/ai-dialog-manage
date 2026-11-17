@@ -22,7 +22,8 @@ def read_lines(path: str | Path) -> list[str]:
         return f.readlines()
 
 
-def make_backup(path: str | Path, source: str, sid: str) -> Path | None:
+def make_backup(path: str | Path, source: str, sid: str,
+                ext: str = ".jsonl") -> Path | None:
     try:
         raw = Path(path).read_bytes()
     except OSError:
@@ -30,15 +31,15 @@ def make_backup(path: str | Path, source: str, sid: str) -> Path | None:
     d = config.BACKUP_DIR / source / sid
     d.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
-    bak = d / f"{stamp}.jsonl"
+    bak = d / f"{stamp}{ext}"
     bak.write_bytes(raw)
-    _prune(d)
+    _prune(d, ext)
     return bak
 
 
-def _prune(d: Path) -> None:
+def _prune(d: Path, ext: str = ".jsonl") -> None:
     try:
-        baks = sorted(d.glob("*.jsonl"))
+        baks = sorted(d.glob(f"*{ext}"))
         for old in baks[: max(0, len(baks) - config.BACKUPS_KEEP)]:
             old.unlink(missing_ok=True)
     except OSError:

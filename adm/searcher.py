@@ -1,13 +1,27 @@
-"""Global full-text search across all session files (raw jsonl substring)."""
+"""Global full-text search across all session sources.
+
+Claude/Codex transcripts are raw jsonl — a substring match on the raw line
+covers everything visible in the viewer. The newer sources store whole-JSON
+documents or sqlite, so search dispatches per source:
+
+  claude / codex : line-by-line jsonl scan (unchanged)
+  gemini/qwen/goose/cline/roo : parse the JSON, walk message records
+  opencode : sqlite instr() over session_message.data
+"""
 from __future__ import annotations
 
 import json
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from . import cline_store, gemini_store, goose_store, opencode_store
 from .models import SessionMeta
 
 MAX_HITS = 3000
+
+_RECORD_STORES = {"gemini": gemini_store, "qwen": gemini_store,
+                  "goose": goose_store, "cline": cline_store,
+                  "roo": cline_store}
 
 
 class SearchThread(QThread):
@@ -32,31 +46,86 @@ class SearchThread(QThread):
     def run(self) -> None:
         q = self.query.lower()
         n = 0
+        oc_con = None
         for k, m in enumerate(self.metas):
             if self._cancel or n >= MAX_HITS or not q:
                 break
             self.status.emit(f"{k + 1}/{len(self.metas)} {m.display_title[:40]}")
             try:
-                with open(m.path, "r", encoding="utf-8", errors="replace") as f:
-                    for i, line in enumerate(f):
-                        if q in line.lower():
-                            role, text = _extract(line)
-                            if text is None:
-                                continue
-                            pos = text.lower().find(q)
-                            if pos == -1:
-                                pos = 0
-                            self.hit.emit({
-                                "meta": m, "line": i, "role": role,
-                                "text": text,
-                                "snippet": _snippet(text, pos),
-                            })
-                            n += 1
-                            if n >= MAX_HITS:
-                                break
+                if m.source == "opencode":
+                    if oc_con is None:
+                        oc_con = opencode_store.connect_ro()
+                    n = self._search_opencode(oc_con, m, q, n)
+                elif m.source in _RECORD_STORES:
+                    n = self._search_records(m, q, n)
+                else:
+                    n = self._search_jsonl(m, q, n)
             except OSError:
                 continue
+            except Exception:  # noqa: BLE001 — one bad session never kills search
+                continue
+        if oc_con is not None:
+            oc_con.close()
         self.done.emit(n)
+
+    def _emit(self, m: SessionMeta, line: int, role: str, text: str,
+              q: str, n: int) -> int:
+        pos = text.lower().find(q)
+        if pos == -1:
+            pos = 0
+        self.hit.emit({
+            "meta": m, "line": line, "role": role,
+            "text": text,
+            "snippet": _snippet(text, pos),
+        })
+        return n + 1
+
+    def _search_jsonl(self, m: SessionMeta, q: str, n: int) -> int:
+        with open(m.path, "r", encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if q in line.lower():
+                    role, text = _extract(line)
+                    if text is None:
+                        continue
+                    n = self._emit(m, i, role, text, q, n)
+                    if n >= MAX_HITS:
+                        break
+        return n
+
+    def _search_records(self, m: SessionMeta, q: str, n: int) -> int:
+        store = _RECORD_STORES[m.source]
+        try:
+            with open(m.path, "r", encoding="utf-8") as f:
+                doc = json.load(f)
+        except ValueError:
+            return n
+        records = store.get_records(doc) if hasattr(store, "get_records") \
+            else None
+        if records is None:
+            return n
+        for i, rec in enumerate(records):
+            if not isinstance(rec, dict):
+                continue
+            role, text = store.record_text(rec)
+            if text and q in text.lower():
+                n = self._emit(m, i, role, text, q, n)
+                if n >= MAX_HITS:
+                    break
+        return n
+
+    def _search_opencode(self, con, m: SessionMeta, q: str, n: int) -> int:
+        rows = con.execute(
+            "SELECT seq, type, data FROM session_message"
+            " WHERE session_id=? AND instr(lower(data), ?) > 0"
+            " ORDER BY seq", (m.id, q)).fetchall()
+        for seq, typ, data in rows:
+            role, text = opencode_store.message_text(typ, data)
+            if not text or q not in text.lower():
+                continue
+            n = self._emit(m, seq, role, text, q, n)
+            if n >= MAX_HITS:
+                break
+        return n
 
 
 def _extract(line: str) -> tuple[str, str | None]:
