@@ -1,3 +1,4 @@
+<a href="https://linux.do"><img src="https://img.shields.io/badge/LINUX%20DO-%E7%A4%BE%E5%8C%BA-FFB003?style=flat-square" alt="LINUX DO 社区" /></a>
 <div align="center">
 
 <img src="adm/assets/app_icon.png" width="130" alt="AI Dialog Manager">
